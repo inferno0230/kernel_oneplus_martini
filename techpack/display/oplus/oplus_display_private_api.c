@@ -1764,8 +1764,14 @@ static ssize_t oplus_display_set_debug(struct kobject *obj,
 static ssize_t oplus_display_get_dimlayer_enable(struct kobject *obj,
 		struct kobj_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%d %d\n", oplus_dimlayer_bl_enable,
-		       oplus_dimlayer_bl_enable_v2);
+	struct dsi_display *display = get_main_display();
+	int res = 0;
+
+	if (strcmp(display->panel->oplus_priv.vendor_name, "AMS662ZS01")) {
+		res = oplus_dimlayer_bl_enable;
+	}
+
+	return sprintf(buf, "%d\n", res);
 }
 
 
