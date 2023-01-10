@@ -12,6 +12,19 @@
 
 #include <linux/stringify.h>
 
+#if IS_ENABLED(CONFIG_ARM64_LSE_ATOMICS) && IS_ENABLED(CONFIG_AS_LSE)
+#define __LL_SC_FALLBACK(asm_ops)					\
+"	b	3f\n"							\
+"	.subsection	1\n"						\
+"3:\n"									\
+asm_ops "\n"								\
+"	b	4f\n"							\
+"	.previous\n"							\
+"4:\n"
+#else
+#define __LL_SC_FALLBACK(asm_ops) asm_ops
+#endif
+
 #ifndef CONFIG_CC_HAS_K_CONSTRAINT
 #define K
 #endif
