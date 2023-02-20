@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -8388,17 +8387,8 @@ static int iw_get_statistics(struct net_device *dev,
 	if (errno)
 		return errno;
 
-	errno = wlan_hdd_qmi_get_sync_resume();
-	if (errno) {
-		hdd_err("qmi sync resume failed: %d", errno);
-		goto end;
-	}
-
 	errno = __iw_get_statistics(dev, info, wrqu, extra);
 
-	wlan_hdd_qmi_put_suspend();
-
-end:
 	osif_vdev_sync_op_stop(vdev_sync);
 
 	return errno;
@@ -8618,7 +8608,7 @@ static int __iw_set_pno(struct net_device *dev,
 		params = sscanf(ptr, " %u %u %hhu %n",
 				  &(req.networks_list[i].authentication),
 				  &(req.networks_list[i].encryption),
-				  &(req.networks_list[i].pno_chan_list.num_chan),
+				  &(req.networks_list[i].channel_cnt),
 				  &offset);
 
 		if (3 != params) {
@@ -8633,20 +8623,20 @@ static int __iw_set_pno(struct net_device *dev,
 			  req.networks_list[i].ssid.ssid,
 			  req.networks_list[i].authentication,
 			  req.networks_list[i].encryption,
-			  req.networks_list[i].pno_chan_list.num_chan, offset);
+			  req.networks_list[i].channel_cnt, offset);
 
 		/* Advance to channel list */
 		ptr += offset;
 
 		if (SCAN_PNO_MAX_NETW_CHANNELS_EX <
-		    req.networks_list[i].pno_chan_list.num_chan) {
+		    req.networks_list[i].channel_cnt) {
 			hdd_err("Incorrect number of channels");
 			ret = -EINVAL;
 			goto exit;
 		}
 
-		if (0 != req.networks_list[i].pno_chan_list.num_chan) {
-			for (j = 0; j < req.networks_list[i].pno_chan_list.num_chan;
+		if (0 != req.networks_list[i].channel_cnt) {
+			for (j = 0; j < req.networks_list[i].channel_cnt;
 			     j++) {
 				if (1 != sscanf(ptr, " %hhu %n", &value,
 				   &offset)) {
@@ -8660,7 +8650,7 @@ static int __iw_set_pno(struct net_device *dev,
 					ret = -EINVAL;
 					goto exit;
 				}
-				req.networks_list[i].pno_chan_list.chan[j].freq =
+				req.networks_list[i].channels[j] =
 					cds_chan_to_freq(value);
 				/* Advance to next channel number */
 				ptr += offset;

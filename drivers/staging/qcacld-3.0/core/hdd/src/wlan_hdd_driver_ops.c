@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2015-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,11 +49,7 @@
 #include "wlan_hdd_thermal.h"
 
 #ifdef MODULE
-#ifdef WLAN_WEAR_CHIPSET
-#define WLAN_MODULE_NAME  "wlan"
-#else
 #define WLAN_MODULE_NAME  module_name(THIS_MODULE)
-#endif
 #else
 #define WLAN_MODULE_NAME  "wlan"
 #endif
@@ -67,6 +62,11 @@ static qdf_atomic_t is_recovery_cleanup_done;
 
 /* firmware/host hang event data */
 static uint8_t g_fw_host_hang_event[QDF_HANG_EVENT_DATA_SIZE];
+
+#ifdef OPLUS_FEATURE_WIFI_OPLUSWFD
+extern void oplus_wfd_set_hdd_ctx(struct hdd_context *hdd_ctx);
+extern void oplus_register_oplus_wfd_wlan_ops_qcom(void);
+#endif
 
 /*
  * In BMI Phase we are only sending small chunk (256 bytes) of the FW image at
@@ -646,6 +646,11 @@ static int __hdd_soc_probe(struct device *dev,
 	hdd_start_complete(0);
 	hdd_thermal_mitigation_register(hdd_ctx, dev);
 
+#ifdef OPLUS_FEATURE_WIFI_OPLUSWFD
+	oplus_wfd_set_hdd_ctx(hdd_ctx);
+	oplus_register_oplus_wfd_wlan_ops_qcom();
+#endif
+
 	hdd_soc_load_unlock(dev);
 
 	return 0;
@@ -754,6 +759,7 @@ static int __hdd_soc_recovery_reinit(struct device *dev,
 	}
 
 	hdd_soc_load_unlock(dev);
+	hdd_start_complete(0);
 
 	return 0;
 
@@ -810,7 +816,6 @@ static int hdd_soc_recovery_reinit(struct device *dev,
 
 
 	osif_psoc_sync_trans_stop(psoc_sync);
-	hdd_start_complete(0);
 
 	return errno;
 }
@@ -826,6 +831,10 @@ static void __hdd_soc_remove(struct device *dev)
 
 	pr_info("%s: Removing driver v%s\n", WLAN_MODULE_NAME,
 		QWLAN_VERSIONSTR);
+
+#ifdef OPLUS_FEATURE_WIFI_OPLUSWFD
+	oplus_wfd_set_hdd_ctx(NULL);
+#endif
 
 	hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
 	if (hif_ctx) {
@@ -982,6 +991,7 @@ static void __hdd_soc_recovery_shutdown(void)
 
 	/* recovery starts via firmware down indication; ensure we got one */
 	QDF_BUG(cds_is_driver_recovering());
+	hdd_init_start_completion();
 
 	hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
 	if (!hdd_ctx) {
@@ -1203,16 +1213,11 @@ static int __wlan_hdd_bus_suspend(struct wow_enable_params wow_params)
 	hdd_info("starting bus suspend");
 
 	hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
-	if (!hdd_ctx)
-		return -ENODEV;
 
 	err = wlan_hdd_validate_context(hdd_ctx);
-	if (0 != err) {
-		if (pld_is_low_power_mode(hdd_ctx->parent_dev))
-			hdd_debug("low power mode (Deep Sleep/Hibernate)");
-		else
-			return err;
-	}
+	if (err)
+		return err;
+
 
 	/* If Wifi is off, return success for system suspend */
 	if (hdd_ctx->driver_status != DRIVER_MODULES_ENABLED) {
@@ -1917,17 +1922,10 @@ static int wlan_hdd_pld_suspend(struct device *dev,
 	struct hdd_context *hdd_ctx;
 
 	hdd_ctx = cds_get_context(QDF_MODULE_ID_HDD);
-	if (!hdd_ctx)
-		return -ENODEV;
 
 	errno = wlan_hdd_validate_context(hdd_ctx);
-	if (0 != errno) {
-		if (pld_is_low_power_mode(hdd_ctx->parent_dev))
-			hdd_debug("low power mode (Deep Sleep/Hibernate)");
-		else
-			return errno;
-	}
-
+	if (errno)
+		return errno;
 	/*
 	 * Flush the idle shutdown before ops start.This is done here to avoid
 	 * the deadlock as idle shutdown waits for the dsc ops
@@ -2096,7 +2094,6 @@ wlan_hdd_pld_uevent(struct device *dev, struct pld_uevent_data *event_data)
 
 		cds_set_target_ready(false);
 		cds_set_recovery_in_progress(true);
-		hdd_init_start_completion();
 
 		/* Notify external threads currently waiting on firmware
 		 * by forcefully completing waiting events with a "reset"

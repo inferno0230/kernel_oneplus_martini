@@ -53,17 +53,7 @@ QDF_STATUS
 tgt_pkt_capture_send_mode(struct wlan_objmgr_vdev *vdev,
 			  enum pkt_capture_mode mode);
 
-/**
- * tgt_pkt_capture_send_beacon_interval() - send beacon interval to firmware
- * @vdev: pointer to vdev object
- * @nth_value: Beacon report period
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-tgt_pkt_capture_send_beacon_interval(struct wlan_objmgr_vdev *vdev,
-				     uint32_t nth_value);
-
+#ifdef WLAN_FEATURE_PKT_CAPTURE_V2
 /**
  * tgt_pkt_capture_send_config() - send packet capture config to firmware
  * @vdev: pointer to vdev object
@@ -73,9 +63,8 @@ tgt_pkt_capture_send_beacon_interval(struct wlan_objmgr_vdev *vdev,
  */
 QDF_STATUS
 tgt_pkt_capture_send_config(struct wlan_objmgr_vdev *vdev,
-			    enum pkt_capture_config config);
+			    enum pkt_capture_trigger_qos_config config);
 
-#ifdef WLAN_FEATURE_PKT_CAPTURE_V2
 /**
  * tgt_pkt_capture_smu_event() - Receive smart monitor event from firmware
  * @psoc: pointer to psoc

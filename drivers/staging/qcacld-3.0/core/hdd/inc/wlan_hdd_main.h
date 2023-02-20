@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1198,20 +1197,6 @@ struct rcpi_info {
 
 struct hdd_context;
 
-#ifdef WLAN_FEATURE_DYNAMIC_RX_AGGREGATION
-/**
- * enum qdisc_filter_status - QDISC filter status
- * @QDISC_FILTER_RTNL_LOCK_FAIL: rtnl lock acquire failed
- * @QDISC_FILTER_PRIO_MATCH: qdisc filter with priority match
- * @QDISC_FILTER_PRIO_MISMATCH: no filter match with configured priority
- */
-enum qdisc_filter_status {
-	QDISC_FILTER_RTNL_LOCK_FAIL,
-	QDISC_FILTER_PRIO_MATCH,
-	QDISC_FILTER_PRIO_MISMATCH,
-};
-#endif
-
 /**
  * struct hdd_adapter - hdd vdev/net_device context
  * @vdev: object manager vdev context
@@ -1239,7 +1224,6 @@ enum qdisc_filter_status {
  * @delete_in_progress: Flag to indicate that the adapter delete is in
  *			progress, and any operation using rtnl lock inside
  *			the driver can be avoided/skipped.
- * @mon_adapter: hdd_adapter of monitor mode.
  */
 struct hdd_adapter {
 	/* Magic cookie for adapter sanity verification.  Note that this
@@ -1401,10 +1385,6 @@ struct hdd_adapter {
 	qdf_work_t gpio_tsf_sync_work;
 #endif
 #endif /* WLAN_FEATURE_TSF_PLUS */
-#ifdef WLAN_FEATURE_TSF_UPLINK_DELAY
-	/* to indicate if TSF auto report is enabled or not */
-	qdf_atomic_t tsf_auto_report;
-#endif /* WLAN_FEATURE_TSF_UPLINK_DELAY */
 #endif
 
 	struct hdd_multicast_addr_list mc_addr_list;
@@ -1455,7 +1435,6 @@ struct hdd_adapter {
 
 #ifdef WLAN_FEATURE_LINK_LAYER_STATS
 	bool is_link_layer_stats_set;
-	uint8_t ll_stats_failure_count;
 #endif
 	uint8_t link_status;
 	uint8_t upgrade_udp_qos_threshold;
@@ -1471,7 +1450,6 @@ struct hdd_adapter {
 
 	/* BITMAP indicating pause reason */
 	uint32_t pause_map;
-	uint32_t subqueue_pause_map;
 	spinlock_t pause_map_lock;
 	qdf_time_t start_time;
 	qdf_time_t last_time;
@@ -1546,11 +1524,9 @@ struct hdd_adapter {
 	void *cookie;
 	bool response_expected;
 #endif
-	qdf_atomic_t gro_disallowed;
+	uint8_t gro_disallowed[DP_MAX_RX_THREADS];
 	uint8_t gro_flushed[DP_MAX_RX_THREADS];
 	bool handle_feature_update;
-	/* Indicate if TSO and checksum offload features are enabled or not */
-	bool tso_csum_feature_enabled;
 	bool runtime_disable_rx_thread;
 	ol_txrx_rx_fp rx_stack;
 
@@ -1563,9 +1539,6 @@ struct hdd_adapter {
 #endif
 	bool delete_in_progress;
 	qdf_atomic_t net_dev_hold_ref_count[NET_DEV_HOLD_ID_MAX];
-#ifdef WLAN_FEATURE_PKT_CAPTURE
-	struct hdd_adapter *mon_adapter;
-#endif
 };
 
 #define WLAN_HDD_GET_STATION_CTX_PTR(adapter) (&(adapter)->session.station)
@@ -1879,8 +1852,7 @@ struct hdd_adapter_ops_history {
  * @country_change_work: work for updating vdev when country changes
  * @rx_aggregation: rx aggregation enable or disable state
  * @gro_force_flush: gro force flushed indication flag
- * @tc_based_dyn_gro: TC based dynamic GRO enable/disable flag
- * @tc_ingress_prio: TC ingress priority
+ * @force_gro_enable: force GRO enable or disable flag
  * @current_pcie_gen_speed: current pcie gen speed
  * @pm_qos_req: pm_qos request for all cpu cores
  * @qos_cpu_mask: voted cpu core mask
@@ -1960,6 +1932,7 @@ struct hdd_context {
 	/** P2P Device MAC Address for the adapter  */
 	struct qdf_mac_addr p2p_device_address;
 
+	qdf_wake_lock_t rx_wake_lock;
 	qdf_wake_lock_t sap_wake_lock;
 
 	/* Flag keeps track of wiphy suspend/resume */
@@ -2191,7 +2164,7 @@ struct hdd_context {
 	struct sar_limit_cmd_params *sar_cmd_params;
 #ifdef SAR_SAFETY_FEATURE
 	qdf_mc_timer_t sar_safety_timer;
-	struct qdf_delayed_work sar_safety_unsolicited_work;
+	qdf_mc_timer_t sar_safety_unsolicited_timer;
 	qdf_event_t sar_safety_req_resp_event;
 	qdf_atomic_t sar_safety_req_resp_event_in_progress;
 #endif
@@ -2220,8 +2193,7 @@ struct hdd_context {
 	struct {
 		qdf_atomic_t rx_aggregation;
 		uint8_t gro_force_flush[DP_MAX_RX_THREADS];
-		bool tc_based_dyn_gro;
-		uint32_t tc_ingress_prio;
+		bool force_gro_enable;
 	} dp_agg_param;
 	int current_pcie_gen_speed;
 	qdf_workqueue_t *adapter_ops_wq;
@@ -2243,10 +2215,6 @@ struct hdd_context {
 	qdf_work_t twt_en_dis_work;
 #endif
 	bool dump_in_progress;
-#ifdef THERMAL_STATS_SUPPORT
-	bool is_therm_stats_in_progress;
-#endif
-	uint64_t bw_vote_time;
 };
 
 /**
@@ -2316,6 +2284,27 @@ struct hdd_channel_info {
 	u_int8_t vht_center_freq_seg0;
 	u_int8_t vht_center_freq_seg1;
 };
+
+
+#ifdef OPLUS_FEATURE_WIFI_DCS_SWITCH
+//Add for wifi switch monitor
+enum wlan_hostdriver_loadstatus {
+	INSMOD_SUCCESS = 1,
+	INSMOD_FAIL,
+	RMMOD_SUCCESS,
+	RMMOD_FAIL,
+	INI_PRASE_SUCCESS,
+	INI_PRASE_FAIL,
+};
+
+struct wlan_hostdriver_loadresult {
+	u_int8_t insmod_status;
+	u_int8_t rmmod_status;
+	u_int8_t ini_prase_status;
+};
+
+void wlan_driver_send_uevent(char *enable);
+#endif /* OPLUS_FEATURE_WIFI_DCS_SWITCH */
 
 /*
  * Function declarations and documentation
@@ -3380,20 +3369,6 @@ int hdd_update_acs_timer_reason(struct hdd_adapter *adapter, uint8_t reason);
  */
 void hdd_switch_sap_channel(struct hdd_adapter *adapter, uint8_t channel,
 			    bool forced);
-
-/**
- * hdd_switch_sap_chan_freq() - Move SAP to the given channel
- * @adapter: AP adapter
- * @chan_freq: Channel frequency
- * @forced: Force to switch channel, ignore SCC/MCC check
- *
- * Moves the SAP interface by invoking the function which
- * executes the callback to perform channel switch using (E)CSA.
- *
- * Return: None
- */
-void hdd_switch_sap_chan_freq(struct hdd_adapter *adapter, qdf_freq_t chan_freq,
-			      bool forced);
 
 #if defined(FEATURE_WLAN_CH_AVOID)
 void hdd_unsafe_channel_restart_sap(struct hdd_context *hdd_ctx);
@@ -4764,22 +4739,6 @@ void wlan_hdd_del_monitor(struct hdd_context *hdd_ctx,
 void
 wlan_hdd_del_p2p_interface(struct hdd_context *hdd_ctx);
 
-/**
- * hdd_reset_monitor_interface() - reset monitor interface flags
- * @sta_adapter: station adapter
- *
- * Return: void
- */
-void hdd_reset_monitor_interface(struct hdd_adapter *sta_adapter);
-
-/**
- * hdd_is_pkt_capture_mon_enable() - Is packet capture monitor mode enable
- * @sta_adapter: station adapter
- *
- * Return: status of packet capture monitor adapter
- */
-struct hdd_adapter *
-hdd_is_pkt_capture_mon_enable(struct hdd_adapter *sta_adapter);
 #else
 static inline
 void wlan_hdd_del_monitor(struct hdd_context *hdd_ctx,
@@ -4796,15 +4755,6 @@ bool wlan_hdd_is_mon_concurrency(void)
 static inline
 void wlan_hdd_del_p2p_interface(struct hdd_context *hdd_ctx)
 {
-}
-
-static inline void hdd_reset_monitor_interface(struct hdd_adapter *sta_adapter)
-{
-}
-
-static inline int hdd_is_pkt_capture_mon_enable(struct hdd_adapter *adapter)
-{
-	return 0;
 }
 #endif /* WLAN_FEATURE_PKT_CAPTURE */
 /**

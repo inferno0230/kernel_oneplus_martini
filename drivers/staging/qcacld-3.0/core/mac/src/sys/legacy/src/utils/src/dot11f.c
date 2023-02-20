@@ -15192,10 +15192,10 @@ static uint32_t unpack_tlv_core(tpAniSirGlobal   pCtx,
 					status |= DOT11F_INCOMPLETE_TLV;
 					FRAMES_DBG_BREAK();
 					goto MandatoryCheck;
-				}
-				framesntohs(pCtx, &len, pBufRemaining, pTlv->fMsb);
-				pBufRemaining += 2;
-				nBufRemaining -= 2;
+			}
+			framesntohs(pCtx, &len, pBufRemaining, pTlv->fMsb);
+			pBufRemaining += 2;
+			nBufRemaining -= 2;
 			} else {
 				len = *pBufRemaining;
 				pBufRemaining += 1;

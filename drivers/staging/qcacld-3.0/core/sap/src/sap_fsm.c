@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -798,7 +797,7 @@ sap_validate_chan(struct sap_context *sap_context,
 	uint32_t sta_sap_bit_mask = QDF_STA_MASK | QDF_SAP_MASK;
 	uint32_t concurrent_state;
 	bool go_force_scc;
-	struct ch_params ch_params = {0};
+	struct ch_params ch_params;
 
 	mac_handle = cds_get_context(QDF_MODULE_ID_SME);
 	mac_ctx = MAC_CONTEXT(mac_handle);
@@ -838,15 +837,7 @@ sap_validate_chan(struct sap_context *sap_context,
 					sap_context->cc_switch_mode);
 			sap_debug("After check overlap: sap freq %d con freq:%d",
 				  sap_context->chan_freq, con_ch_freq);
-			/*
-			 * For non-DBS platform, a 2.4Ghz can become a 5Ghz freq
-			 * so lets used max BW in that case, if it remain 2.4Ghz
-			 * then BW will be limited to 20 anyway
-			 */
-			if (WLAN_REG_IS_24GHZ_CH_FREQ(sap_context->chan_freq))
-				ch_params.ch_width = CH_WIDTH_MAX;
-			else
-				ch_params = sap_context->ch_params;
+			ch_params = sap_context->ch_params;
 
 			if (sap_context->cc_switch_mode !=
 		QDF_MCC_TO_SCC_SWITCH_FORCE_PREFERRED_WITHOUT_DISCONNECTION) {
@@ -860,9 +851,6 @@ sap_validate_chan(struct sap_context *sap_context,
 					return QDF_STATUS_E_ABORTED;
 				}
 			}
-			/* if CH width didn't change fallback to original */
-			if (ch_params.ch_width == CH_WIDTH_MAX)
-				ch_params = sap_context->ch_params;
 
 			sap_debug("After check concurrency: con freq:%d",
 				  con_ch_freq);
@@ -1504,7 +1492,7 @@ QDF_STATUS sap_signal_hdd_event(struct sap_context *sap_ctx,
 		bss_complete->status = (eSapStatus) context;
 		bss_complete->staId = sap_ctx->sap_sta_id;
 
-		sap_debug("(eSAP_START_BSS_EVENT): staId = %d",
+		sap_info("(eSAP_START_BSS_EVENT): staId = %d",
 			  bss_complete->staId);
 
 		bss_complete->operating_chan_freq = sap_ctx->chan_freq;
@@ -2300,10 +2288,6 @@ static QDF_STATUS sap_goto_starting(struct sap_context *sap_ctx,
 			     eSAP_CHANNEL_CHANGE_EVENT,
 			     (void *)eSAP_STATUS_SUCCESS);
 	sap_dfs_set_current_channel(sap_ctx);
-	/* Reset radar found flag before start sap, the flag will
-	 * be set when radar found in CAC wait.
-	 */
-	mac_ctx->sap.SapDfsInfo.sap_radar_found_status = false;
 
 	sap_debug("session: %d", sap_ctx->sessionId);
 
@@ -2445,7 +2429,7 @@ static QDF_STATUS sap_fsm_handle_radar_during_cac(struct sap_context *sap_ctx,
 }
 
 /**
- * sap_fsm_handle_start_failure() - handle sap start failure
+ * sap_fsm_handle_start_failure() - handle start failure or stop during cac wait
  * @sap_ctx: SAP context
  * @msg: event msg
  * @mac_handle: Opaque handle to the global MAC context
@@ -2458,11 +2442,13 @@ static QDF_STATUS sap_fsm_handle_start_failure(struct sap_context *sap_ctx,
 {
 	QDF_STATUS qdf_status = QDF_STATUS_E_FAILURE;
 
-	if (msg == eSAP_HDD_STOP_INFRA_BSS) {
+	if (msg == eSAP_HDD_STOP_INFRA_BSS &&
+	    (QDF_IS_STATUS_SUCCESS(wlan_vdev_is_dfs_cac_wait(sap_ctx->vdev)) ||
+	     QDF_IS_STATUS_SUCCESS(
+	     wlan_vdev_is_restart_progress(sap_ctx->vdev)))) {
 		/* Transition from SAP_STARTING to SAP_STOPPING */
-		sap_debug("SAP start is in progress, state from state %s => %s",
+		sap_debug("In cac wait state from state %s => %s",
 			  "SAP_STARTING", "SAP_STOPPING");
-
 		/*
 		 * Stop the CAC timer only in following conditions
 		 * single AP: if there is a single AP then stop timer
@@ -2666,7 +2652,6 @@ static QDF_STATUS sap_fsm_state_starting(struct sap_context *sap_ctx,
 							       mac_handle);
 			} else {
 				sap_debug("skip cac timer");
-				mac_ctx->sap.SapDfsInfo.sap_radar_found_status = false;
 				/*
 				 * If hostapd starts AP on dfs channel,
 				 * hostapd will wait for CAC START/CAC END
@@ -3123,8 +3108,6 @@ sapconvert_to_csr_profile(struct sap_config *config, eCsrRoamBssType bssType,
 		profile->extended_rates.numRates =
 			config->extended_rates.numRates;
 	}
-
-	profile->require_h2e = config->require_h2e;
 
 	qdf_status = ucfg_mlme_get_sap_chan_switch_rate_enabled(
 					mac_ctx->psoc,

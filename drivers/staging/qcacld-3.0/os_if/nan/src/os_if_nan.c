@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -37,7 +36,6 @@
 #include "wlan_utility.h"
 #include "wlan_osif_request_manager.h"
 #include "wlan_mlme_ucfg_api.h"
-#include "wlan_tdls_ucfg_api.h"
 
 #define NAN_CMD_MAX_SIZE 2048
 
@@ -1059,17 +1057,6 @@ int os_if_nan_process_ndp_cmd(struct wlan_objmgr_psoc *psoc,
 
 	switch (ndp_cmd_type) {
 	case QCA_WLAN_VENDOR_ATTR_NDP_INTERFACE_CREATE:
-		/**
-		 * NDI creation is not allowed if NAN discovery is not running.
-		 * Allowing NDI creation when NAN discovery is not enabled may
-		 * lead to issues if NDI has to be started in a
-		 * 2GHz channel and if the target is not operating in DBS mode.
-		 */
-		if ((ucfg_is_nan_conc_control_supported(psoc)) &&
-		    (!ucfg_is_nan_disc_active(psoc))) {
-			osif_err("NDI creation is not allowed when NAN discovery is not running");
-			return -EOPNOTSUPP;
-		}
 		return os_if_nan_process_ndi_create(psoc, tb);
 	case QCA_WLAN_VENDOR_ATTR_NDP_INTERFACE_DELETE:
 		return os_if_nan_process_ndi_delete(psoc, tb);
@@ -2625,15 +2612,15 @@ int os_if_process_nan_req(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
 	}
 
 	/*
-	 * If target does not support NAN DBS, stop the opportunistic timer.
-	 * Opportunistic timer gets triggered as soon as a DBS use case is
-	 * completed and hw_mode would be set to SMM when the timer(5 seconds)
-	 * expires.
-	 * This is to make sure that HW mode is not set to DBS by NAN Enable
-	 * request. NAN state machine will remain unaffected in this case.
+	 * If target does not support NAN DBS, send request with type GENERIC.
+	 * These will be treated as passthrough by the driver. This is to make
+	 * sure that HW mode is not set to DBS by NAN Enable request. NAN state
+	 * machine will remain unaffected in this case.
 	 */
-	if (!NAN_CONCURRENCY_SUPPORTED(psoc))
+	if (!NAN_CONCURRENCY_SUPPORTED(psoc)) {
 		policy_mgr_check_and_stop_opportunistic_timer(psoc, vdev_id);
+		return os_if_nan_generic_req(psoc, tb);
+	}
 
 	/*
 	 * Send all requests other than Enable/Disable as type GENERIC.

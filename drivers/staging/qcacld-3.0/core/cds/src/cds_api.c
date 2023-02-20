@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -958,13 +957,10 @@ QDF_STATUS cds_dp_open(struct wlan_objmgr_psoc *psoc)
 
 	cds_debug("CDS successfully Opened");
 
-	if (cdp_cfg_get(gp_cds_context->dp_soc, cfg_dp_tc_based_dyn_gro_enable))
-		hdd_ctx->dp_agg_param.tc_based_dyn_gro = true;
+	if (cdp_cfg_get(gp_cds_context->dp_soc, cfg_dp_force_gro_enable))
+		hdd_ctx->dp_agg_param.force_gro_enable = true;
 	else
-		hdd_ctx->dp_agg_param.tc_based_dyn_gro = false;
-
-	hdd_ctx->dp_agg_param.tc_ingress_prio =
-		    cdp_cfg_get(gp_cds_context->dp_soc, cfg_dp_tc_ingress_prio);
+		hdd_ctx->dp_agg_param.force_gro_enable = false;
 
 	return 0;
 
@@ -2829,9 +2825,6 @@ cds_dp_get_vdev_stats(uint8_t vdev_id, struct cds_vdev_dp_stats *stats)
 
 	if (cds_get_cdp_vdev_stats(vdev_id, vdev_stats)) {
 		stats->tx_retries = vdev_stats->tx.retries;
-		stats->tx_retries_mpdu = vdev_stats->tx.retries_mpdu;
-		stats->tx_mpdu_success_with_retries =
-			vdev_stats->tx.mpdu_success_with_retries;
 		ret = true;
 	}
 

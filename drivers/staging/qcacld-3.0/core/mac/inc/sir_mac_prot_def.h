@@ -344,6 +344,9 @@
 #define SIR_MAC_BAD_HTC_HE_VENDOR_OUI1             "\x00\x50\xF2\x11"
 #define SIR_MAC_BAD_HTC_HE_VENDOR_OUI2             "\x00\x50\xF2\x12"
 #define SIR_MAC_BAD_HTC_HE_VENDOR_OUI_LEN         4
+#define SIR_MAC_BAD_SU_BFORMEE_VENDOR_OUI1     "\x00\x10\x18\x02\02\00\1c\00\00"
+#define SIR_MAC_BAD_SU_BFORMEE_VENDOR_OUI2     "\x00\x10\x18\x02\03\00\1c\00\00"
+#define SIR_MAC_BAD_SU_BFORMEE_VENDOR_OUI_LEN         9
 
 /* Maximum allowable size of a beacon and probe rsp frame */
 #define SIR_MAX_BEACON_SIZE    512

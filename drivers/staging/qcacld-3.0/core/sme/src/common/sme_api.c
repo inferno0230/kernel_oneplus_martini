@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1185,8 +1184,6 @@ QDF_STATUS sme_hdd_ready_ind(mac_handle_t mac_handle)
 		msg->csr_roam_auth_event_handle_cb =
 				csr_roam_auth_offload_callback;
 		msg->csr_roam_pmkid_req_cb = csr_roam_pmkid_req_callback;
-		msg->csr_roam_candidate_event_cb =
-				csr_roam_candidate_event_handle_callback;
 
 		status = u_mac_post_ctrl_msg(mac_handle, (tSirMbMsg *)msg);
 		if (QDF_IS_STATUS_ERROR(status)) {
@@ -8671,7 +8668,7 @@ void sme_get_command_q_status(mac_handle_t mac_handle)
  * @timestamp_offset: return for the offset of the timestamp field
  * @time_value_offset: return for the time_value field in the TA IE
  *
- * Return: the length of the buffer on success and error code on failure.
+ * Return: the length of the buffer.
  */
 int sme_ocb_gen_timing_advert_frame(mac_handle_t mac_handle,
 				    tSirMacAddr self_addr, uint8_t **buf,
@@ -13625,30 +13622,6 @@ void sme_set_chan_info_callback(mac_handle_t mac_handle,
 	mac->chan_info_cb = callback;
 }
 
-#ifdef WLAN_FEATURE_CAL_FAILURE_TRIGGER
-void sme_set_cal_failure_event_cb(
-			mac_handle_t mac_handle,
-			void (*callback)(uint8_t cal_type, uint8_t reason))
-{
-	struct mac_context *mac;
-	QDF_STATUS status   = QDF_STATUS_SUCCESS;
-
-	if (!mac_handle) {
-		QDF_ASSERT(0);
-		return;
-	}
-	mac = MAC_CONTEXT(mac_handle);
-
-	status = sme_acquire_global_lock(&mac->sme);
-	if (QDF_IS_STATUS_SUCCESS(status)) {
-		mac->cal_failure_event_cb = callback;
-		sme_release_global_lock(&mac->sme);
-	} else {
-		sme_err("sme_acquire_global_lock failed");
-	}
-}
-#endif
-
 void sme_set_vdev_ies_per_band(mac_handle_t mac_handle, uint8_t vdev_id,
 			       enum QDF_OPMODE device_mode)
 {
@@ -14383,9 +14356,11 @@ QDF_STATUS sme_get_beacon_frm(mac_handle_t mac_handle,
 		status = QDF_STATUS_E_NOMEM;
 		goto exit;
 	}
-
-	if (!*ch_freq || qdf_is_macaddr_zero((struct qdf_mac_addr *)&bssid)) {
-		sme_err("Invalid roaming parameter");
+	status = csr_roam_get_scan_filter_from_profile(mac_ctx,
+						       profile, scan_filter,
+						       false, vdev_id);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		sme_err("prepare_filter failed");
 		status = QDF_STATUS_E_FAULT;
 		qdf_mem_free(scan_filter);
 		goto exit;
@@ -14395,9 +14370,6 @@ QDF_STATUS sme_get_beacon_frm(mac_handle_t mac_handle,
 	scan_filter->num_of_bssid = 1;
 	qdf_mem_copy(scan_filter->bssid_list[0].bytes,
 		     bssid, sizeof(struct qdf_mac_addr));
-
-	scan_filter->num_of_channels = 1;
-	scan_filter->chan_freq_list[0] = *ch_freq;
 
 	status = csr_scan_get_result(mac_ctx, scan_filter, &result_handle,
 				     false);
@@ -16030,7 +16002,6 @@ QDF_STATUS sme_handle_sae_msg(mac_handle_t mac_handle,
 		sae_msg->length = sizeof(*sae_msg);
 		sae_msg->vdev_id = session_id;
 		sae_msg->sae_status = sae_status;
-		sae_msg->result_code = eSIR_SME_AUTH_REFUSED;
 		qdf_mem_copy(sae_msg->peer_mac_addr,
 			     peer_mac_addr.bytes,
 			     QDF_MAC_ADDR_SIZE);
@@ -16954,6 +16925,7 @@ QDF_STATUS sme_register_bcn_recv_pause_ind_cb(mac_handle_t mac_handle,
 }
 #endif
 
+/*Vendor cmd to set SW retry threshold value-26106,20210701*/
 QDF_STATUS sme_set_vdev_sw_retry(uint8_t vdev_id, uint8_t sw_retry_count,
 				 wmi_vdev_custom_sw_retry_type_t sw_retry_type)
 {
@@ -17291,27 +17263,5 @@ sme_set_beacon_latency_event_cb(mac_handle_t mac_handle,
 	sme_release_global_lock(&mac->sme);
 
 	return qdf_status;
-}
-#endif
-
-#ifdef WLAN_FEATURE_ROAM_OFFLOAD
-void sme_roam_events_register_callback(mac_handle_t mac_handle,
-				       void (*roam_rt_stats_cb)(
-				hdd_handle_t hdd_handle,
-				struct mlme_roam_debug_info *roam_stats))
-{
-	struct mac_context *mac = MAC_CONTEXT(mac_handle);
-
-	if (!mac) {
-		sme_err("Invalid mac context");
-		return;
-	}
-
-	mac->sme.roam_rt_stats_cb = roam_rt_stats_cb;
-}
-
-void sme_roam_events_deregister_callback(mac_handle_t mac_handle)
-{
-	sme_roam_events_register_callback(mac_handle, NULL);
 }
 #endif

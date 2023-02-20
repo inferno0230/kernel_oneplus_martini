@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -205,6 +204,39 @@ static inline struct sk_buff *hdd_skb_orphan(struct hdd_adapter *adapter,
 		skb = skb_unshare(skb, GFP_ATOMIC);
 
 	return skb;
+}
+
+#else
+/**
+ * hdd_skb_orphan() - skb_unshare a cloned packed else skb_orphan
+ * @adapter: pointer to HDD adapter
+ * @skb: pointer to skb data packet
+ *
+ * Return: pointer to skb structure
+ */
+static inline struct sk_buff *hdd_skb_orphan(struct hdd_adapter *adapter,
+		struct sk_buff *skb) {
+
+	struct sk_buff *nskb;
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 19, 0))
+	struct hdd_context *hdd_ctx = WLAN_HDD_GET_CTX(adapter);
+#endif
+
+	hdd_skb_fill_gso_size(adapter->dev, skb);
+
+	nskb = skb_unshare(skb, GFP_ATOMIC);
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(3, 19, 0))
+	if (unlikely(hdd_ctx->config->tx_orphan_enable) && (nskb == skb)) {
+		/*
+		 * For UDP packets we want to orphan the packet to allow the app
+		 * to send more packets. The flow would ultimately be controlled
+		 * by the limited number of tx descriptors for the vdev.
+		 */
+		++adapter->hdd_stats.tx_rx_stats.tx_orphaned;
+		skb_orphan(skb);
+	}
+#endif
+	return nskb;
 }
 #endif /* QCA_LL_LEGACY_TX_FLOW_CONTROL */
 
@@ -1162,6 +1194,19 @@ QDF_STATUS hdd_softap_rx_packet_cbk(void *adapter_context, qdf_nbuf_t rx_buf)
 				QDF_DP_TRACE_RX_PACKET_RECORD, 0, QDF_RX));
 
 		skb->protocol = eth_type_trans(skb, skb->dev);
+
+		/* hold configurable wakelock for unicast traffic */
+		if (!hdd_is_current_high_throughput(hdd_ctx) &&
+		    hdd_ctx->config->rx_wakelock_timeout &&
+		    skb->pkt_type != PACKET_BROADCAST &&
+		    skb->pkt_type != PACKET_MULTICAST) {
+			cds_host_diag_log_work(&hdd_ctx->rx_wake_lock,
+						   hdd_ctx->config->rx_wakelock_timeout,
+						   WIFI_POWER_EVENT_WAKELOCK_HOLD_RX);
+			qdf_wake_lock_timeout_acquire(&hdd_ctx->rx_wake_lock,
+							  hdd_ctx->config->
+								  rx_wakelock_timeout);
+		}
 
 		/* Remove SKB from internal tracking table before submitting
 		 * it to stack

@@ -6,14 +6,11 @@ else
 	KERNEL_BUILD := n
 endif
 
-# Force user build
-TARGET_BUILD_VARIANT := user
-
 ifeq ($(KERNEL_BUILD), y)
 	# These are provided in external module based builds
 	# Need to explicitly define for Kernel-based builds
 	MODNAME := wlan
-	WLAN_ROOT := $(srctree)/$(src)
+	WLAN_ROOT := drivers/staging/qcacld-3.0
 	WLAN_COMMON_ROOT := ../qca-wifi-host-cmn
 	WLAN_COMMON_INC := $(WLAN_ROOT)/$(WLAN_COMMON_ROOT)
 	WLAN_FW_API := $(WLAN_ROOT)/../fw-api/
@@ -36,7 +33,7 @@ ifneq ($(ANDROID_BUILD_TOP),)
 endif
 endif
 
-include $(WLAN_ROOT)/configs/$(patsubst "%",%,$(CONFIG_QCA_CLD_WLAN_PROFILE))_defconfig
+include $(WLAN_ROOT)/configs/$(CONFIG_QCA_CLD_WLAN_PROFILE)_defconfig
 
 # add configurations in WLAN_CFG_OVERRIDE
 ifneq ($(WLAN_CFG_OVERRIDE),)
@@ -77,10 +74,6 @@ UAPI_INC :=	-I$(WLAN_ROOT)/$(UAPI_DIR)/linux
 COMMON_DIR :=	core/common
 COMMON_INC :=	-I$(WLAN_ROOT)/$(COMMON_DIR)
 
-ifeq (qca_cld3, $(WLAN_WEAR_CHIPSET))
-	cppflags-y += -DWLAN_WEAR_CHIPSET
-endif
-
 ############ HDD ############
 HDD_DIR :=	core/hdd
 HDD_INC_DIR :=	$(HDD_DIR)/inc
@@ -111,6 +104,17 @@ HDD_OBJS := 	$(HDD_SRC_DIR)/wlan_hdd_assoc.o \
 		$(HDD_SRC_DIR)/wlan_hdd_tx_rx.o \
 		$(HDD_SRC_DIR)/wlan_hdd_wmm.o \
 		$(HDD_SRC_DIR)/wlan_hdd_wowl.o
+
+ifeq ($(CONFIG_OPLUS_FEATURE_WIFI_OPLUSWFD), y)
+KBUILD_CPPFLAGS += -DOPLUS_FEATURE_WIFI_OPLUSWFD
+HDD_OBJS +=	$(HDD_SRC_DIR)/wlan_oplus_wfd.o
+endif
+
+ifeq ($(CONFIG_OPLUS_FEATURE_WIFI_OPLUSWFD), m)
+KBUILD_CPPFLAGS += -DOPLUS_FEATURE_WIFI_OPLUSWFD
+HDD_OBJS +=	$(HDD_SRC_DIR)/wlan_oplus_wfd.o
+endif
+### End
 
 ifeq ($(CONFIG_WLAN_FEATURE_PERIODIC_STA_STATS), y)
 HDD_OBJS += $(HDD_SRC_DIR)/wlan_hdd_periodic_sta_stats.o
@@ -754,10 +758,8 @@ WLAN_LOGGING_INC_DIR :=	$(WLAN_LOGGING_DIR)/inc
 WLAN_LOGGING_SRC_DIR :=	$(WLAN_LOGGING_DIR)/src
 
 WLAN_LOGGING_INC     := -I$(WLAN_ROOT)/$(WLAN_LOGGING_INC_DIR)
-ifeq ($(BUILD_DEBUG_VERSION), 1)
 WLAN_LOGGING_OBJS    := $(WLAN_LOGGING_SRC_DIR)/wlan_logging_sock_svc.o \
 		$(WLAN_LOGGING_SRC_DIR)/wlan_roam_debug.o
-endif
 
 $(call add-wlan-objs,wlan_logging,$(WLAN_LOGGING_OBJS))
 
@@ -1280,8 +1282,7 @@ FWOL_OS_IF_SRC := os_if/fw_offload/src
 FWOL_INC := -I$(WLAN_ROOT)/$(FWOL_CORE_INC) \
 	    -I$(WLAN_ROOT)/$(FWOL_DISPATCHER_INC) \
 	    -I$(WLAN_ROOT)/$(FWOL_TARGET_IF_INC) \
-	    -I$(WLAN_ROOT)/$(FWOL_OS_IF_INC) \
-	    -I$(WLAN_COMMON_INC)/umac/thermal/dispatcher/inc
+	    -I$(WLAN_ROOT)/$(FWOL_OS_IF_INC)
 
 ifeq ($(CONFIG_WLAN_FW_OFFLOAD), y)
 FWOL_OBJS :=	$(FWOL_CORE_SRC)/wlan_fw_offload_main.o \
@@ -1409,12 +1410,10 @@ $(call add-wlan-objs,action_oui,$(ACTION_OUI_OBJS))
 ######## PACKET CAPTURE ########
 
 PKT_CAPTURE_DIR := components/pkt_capture
-PKT_CAPTURE_OS_IF_DIR := os_if/pkt_capture
 PKT_CAPTURE_TARGET_IF_DIR := components/target_if/pkt_capture/
 PKT_CAPTURE_INC := -I$(WLAN_ROOT)/$(PKT_CAPTURE_DIR)/core/inc \
 		  -I$(WLAN_ROOT)/$(PKT_CAPTURE_DIR)/dispatcher/inc \
-		  -I$(WLAN_ROOT)/$(PKT_CAPTURE_TARGET_IF_DIR)/inc \
-		  -I$(WLAN_ROOT)/$(PKT_CAPTURE_OS_IF_DIR)/inc
+		  -I$(WLAN_ROOT)/$(PKT_CAPTURE_TARGET_IF_DIR)/inc
 
 ifeq ($(CONFIG_WLAN_FEATURE_PKT_CAPTURE), y)
 PKT_CAPTURE_OBJS := $(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_main.o \
@@ -1423,9 +1422,7 @@ PKT_CAPTURE_OBJS := $(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_main.o \
 		$(PKT_CAPTURE_DIR)/core/src/wlan_pkt_capture_data_txrx.o \
 		$(PKT_CAPTURE_DIR)/dispatcher/src/wlan_pkt_capture_ucfg_api.o \
 		$(PKT_CAPTURE_DIR)/dispatcher/src/wlan_pkt_capture_tgt_api.o \
-		$(PKT_CAPTURE_DIR)/dispatcher/src/wlan_pkt_capture_api.o \
-		$(PKT_CAPTURE_TARGET_IF_DIR)/src/target_if_pkt_capture.o \
-		$(PKT_CAPTURE_OS_IF_DIR)/src/os_if_pkt_capture.o
+		$(PKT_CAPTURE_TARGET_IF_DIR)/src/target_if_pkt_capture.o
 endif
 
 $(call add-wlan-objs,pkt_capture,$(PKT_CAPTURE_OBJS))
@@ -2613,9 +2610,9 @@ ccflags-y += $(INCS)
 
 cppflags-y +=	-DANI_OS_TYPE_ANDROID=6 \
 		-Wall\
+		-Werror\
 		-D__linux__
 
-cppflags-$(CONFIG_THERMAL_STATS_SUPPORT) += -DTHERMAL_STATS_SUPPORT
 cppflags-$(CONFIG_PTT_SOCK_SVC_ENABLE) += -DPTT_SOCK_SVC_ENABLE
 cppflags-$(CONFIG_FEATURE_WLAN_WAPI) += -DFEATURE_WLAN_WAPI
 cppflags-$(CONFIG_FEATURE_WLAN_WAPI) += -DATH_SUPPORT_WAPI
@@ -2661,7 +2658,6 @@ WLAN_TWT_SAP_STA_COUNT ?= 32
 ccflags-y += -DWLAN_TWT_SAP_STA_COUNT=$(WLAN_TWT_SAP_STA_COUNT)
 endif
 
-cppflags-$(CONFIG_ENABLE_LOW_POWER_MODE) += -DCONFIG_ENABLE_LOW_POWER_MODE
 cppflags-$(CONFIG_WLAN_TWT_SAP_PDEV_COUNT) += -DWLAN_TWT_AP_PDEV_COUNT_NUM_PHY
 cppflags-$(CONFIG_WLAN_DISABLE_EXPORT_SYMBOL) += -DWLAN_DISABLE_EXPORT_SYMBOL
 cppflags-$(CONFIG_WIFI_POS_CONVERGED) += -DWIFI_POS_CONVERGED
@@ -2707,6 +2703,7 @@ cppflags-$(CONFIG_PLD_PCIE_INIT_FLAG) += -DCONFIG_PLD_PCIE_INIT
 cppflags-$(CONFIG_WLAN_FEATURE_DP_RX_THREADS) += -DFEATURE_WLAN_DP_RX_THREADS
 cppflags-$(CONFIG_WLAN_FEATURE_RX_SOFTIRQ_TIME_LIMIT) += -DWLAN_FEATURE_RX_SOFTIRQ_TIME_LIMIT
 cppflags-$(CONFIG_FEATURE_HAL_DELAYED_REG_WRITE) += -DFEATURE_HAL_DELAYED_REG_WRITE
+cppflags-$(CONFIG_FEATURE_HAL_DELAYED_REG_WRITE_V2) += -DFEATURE_HAL_DELAYED_REG_WRITE_V2
 cppflags-$(CONFIG_QCA_OL_DP_SRNG_LOCK_LESS_ACCESS) += -DQCA_OL_DP_SRNG_LOCK_LESS_ACCESS
 cppflags-$(CONFIG_SHADOW_WRITE_DELAY) += -DSHADOW_WRITE_DELAY
 
@@ -3276,8 +3273,6 @@ cppflags-$(CONFIG_WLAN_FEATURE_PKT_CAPTURE) += -DWLAN_FEATURE_PKT_CAPTURE
 
 cppflags-$(CONFIG_WLAN_FEATURE_PKT_CAPTURE_V2) += -DWLAN_FEATURE_PKT_CAPTURE_V2
 
-cppflags-$(CONFIG_DP_RX_UDP_OVER_PEER_ROAM) += -DDP_RX_UDP_OVER_PEER_ROAM
-
 cppflags-$(CONFIG_QCA_WIFI_NAPIER_EMULATION) += -DQCA_WIFI_NAPIER_EMULATION
 cppflags-$(CONFIG_SHADOW_V2) += -DCONFIG_SHADOW_V2
 cppflags-$(CONFIG_QCA6290_HEADERS_DEF) += -DQCA6290_HEADERS_DEF
@@ -3350,7 +3345,6 @@ cppflags-$(CONFIG_RXDMA_ERR_PKT_DROP) += -DRXDMA_ERR_PKT_DROP
 cppflags-$(CONFIG_MAX_ALLOC_PAGE_SIZE) += -DMAX_ALLOC_PAGE_SIZE
 cppflags-$(CONFIG_DELIVERY_TO_STACK_STATUS_CHECK) += -DDELIVERY_TO_STACK_STATUS_CHECK
 cppflags-$(CONFIG_WLAN_TRACE_HIDE_MAC_ADDRESS) += -DWLAN_TRACE_HIDE_MAC_ADDRESS
-cppflags-$(CONFIG_WLAN_FEATURE_CAL_FAILURE_TRIGGER) += -DWLAN_FEATURE_CAL_FAILURE_TRIGGER
 
 cppflags-$(CONFIG_LITHIUM) += -DFIX_TXDMA_LIMITATION
 cppflags-$(CONFIG_LITHIUM) += -DFEATURE_AST
@@ -3743,7 +3737,7 @@ cppflags-$(CONFIG_MORE_TX_DESC) += -DTX_TO_NPEERS_INC_TX_DESCS
 
 ccflags-$(CONFIG_HASTINGS_BT_WAR) += -DHASTINGS_BT_WAR
 
-cppflags-y += -DHIF_CONFIG_SLUB_DEBUG_ON
+cppflags-$(CONFIG_SLUB_DEBUG_ON) += -DHIF_CONFIG_SLUB_DEBUG_ON
 cppflags-$(CONFIG_SLUB_DEBUG_ON) += -DHAL_CONFIG_SLUB_DEBUG_ON
 
 ccflags-$(CONFIG_FOURTH_CONNECTION) += -DFEATURE_FOURTH_CONNECTION

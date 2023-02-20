@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -88,7 +87,6 @@
 #include "wlan_hdd_object_manager.h"
 #include <linux/igmp.h>
 #include "qdf_types.h"
-#include <wlan_cp_stats_mc_ucfg_api.h>
 /* Preprocessor definitions and constants */
 #ifdef QCA_WIFI_NAPIER_EMULATION
 #define HDD_SSR_BRING_UP_TIME 3000000
@@ -602,7 +600,7 @@ void hdd_enable_ns_offload(struct hdd_adapter *adapter,
 	/* cache ns request */
 	status = ucfg_pmo_cache_ns_offload_req(ns_req);
 	if (QDF_IS_STATUS_ERROR(status)) {
-		hdd_debug("Failed to cache ns request; status:%d", status);
+		hdd_err("Failed to cache ns request; status:%d", status);
 		goto free_req;
 	}
 
@@ -614,7 +612,7 @@ void hdd_enable_ns_offload(struct hdd_adapter *adapter,
 	/* enable ns request */
 	status = ucfg_pmo_enable_ns_offload_in_fwr(vdev, trigger);
 	if (QDF_IS_STATUS_ERROR(status)) {
-		hdd_debug("Failed to enable ns offload; status:%d", status);
+		hdd_err("Failed to enable ns offload; status:%d", status);
 		goto put_vdev;
 	}
 
@@ -1181,6 +1179,20 @@ int wlan_hdd_ipv4_changed(struct notifier_block *nb,
 }
 
 #ifdef FEATURE_RUNTIME_PM
+/* For CPU, the enter & exit latency of the deepest LPM mode(CXPC)
+ * is about ~10ms. so long as required QoS latency is longer than 10ms,
+ * CPU can enter CXPC mode.
+ * The vote value is in microseconds.
+ */
+#define HDD_CPU_CXPC_THRESHOLD (10000)
+static bool wlan_hdd_is_cpu_cxpc_allowed(unsigned long vote)
+{
+	if (vote >= HDD_CPU_CXPC_THRESHOLD)
+		return true;
+	else
+		return false;
+}
+
 int wlan_hdd_pm_qos_notify(struct notifier_block *nb, unsigned long curr_val,
 			   void *context)
 {
@@ -1209,11 +1221,11 @@ int wlan_hdd_pm_qos_notify(struct notifier_block *nb, unsigned long curr_val,
 
 	if (!hdd_ctx->runtime_pm_prevented &&
 	    is_any_sta_connected &&
-	    curr_val != wlan_hdd_get_pm_qos_cpu_latency()) {
+	    !wlan_hdd_is_cpu_cxpc_allowed(curr_val)) {
 		hif_pm_runtime_get_noresume(hif_ctx, RTPM_ID_QOS_NOTIFY);
 		hdd_ctx->runtime_pm_prevented = true;
 	} else if (hdd_ctx->runtime_pm_prevented &&
-		   curr_val == wlan_hdd_get_pm_qos_cpu_latency()) {
+		   wlan_hdd_is_cpu_cxpc_allowed(curr_val)) {
 		hif_pm_runtime_put(hif_ctx, RTPM_ID_QOS_NOTIFY);
 		hdd_ctx->runtime_pm_prevented = false;
 	}
@@ -1640,8 +1652,6 @@ QDF_STATUS hdd_wlan_shutdown(void)
 		hdd_ctx->is_scheduler_suspended = false;
 		hdd_ctx->is_wiphy_suspended = false;
 		hdd_ctx->hdd_wlan_suspended = false;
-		ucfg_pmo_resume_all_components(hdd_ctx->psoc,
-					       QDF_SYSTEM_SUSPEND);
 	}
 
 	wlan_hdd_rx_thread_resume(hdd_ctx);
@@ -2241,12 +2251,8 @@ static int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 	}
 
 	rc = wlan_hdd_validate_context(hdd_ctx);
-	if (0 != rc) {
-		if (pld_is_low_power_mode(hdd_ctx->parent_dev))
-			hdd_debug("low power mode (Deep Sleep/Hibernate)");
-		else
-			return rc;
-	}
+	if (0 != rc)
+		return rc;
 
 	if (hdd_ctx->config->is_wow_disabled) {
 		hdd_info_rl("wow is disabled");
@@ -2351,7 +2357,7 @@ static int __wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 	if (ucfg_ipa_suspend(hdd_ctx->pdev)) {
 		hdd_err("IPA not ready to suspend!");
 		wlan_hdd_inc_suspend_stats(hdd_ctx, SUSPEND_FAIL_IPA);
-		goto resume_all_components;
+		return -EAGAIN;
 	}
 
 	/* Suspend control path scheduler */
@@ -2436,9 +2442,6 @@ resume_ol_rx:
 	hdd_ctx->is_scheduler_suspended = false;
 resume_tx:
 	hdd_resume_wlan();
-resume_all_components:
-	ucfg_pmo_resume_all_components(hdd_ctx->psoc, QDF_SYSTEM_SUSPEND);
-
 	return -ETIME;
 
 }
@@ -2462,12 +2465,8 @@ static int _wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 	}
 
 	errno = wlan_hdd_validate_context(hdd_ctx);
-	if (0 != errno) {
-		if (pld_is_low_power_mode(hdd_ctx->parent_dev))
-			hdd_debug("low power mode (Deep Sleep/Hibernate)");
-		else
-			return errno;
-	}
+	if (errno)
+		return errno;
 
 	hif_ctx = cds_get_context(QDF_MODULE_ID_HIF);
 	if (!hif_ctx)
@@ -2494,12 +2493,8 @@ int wlan_hdd_cfg80211_suspend_wlan(struct wiphy *wiphy,
 	struct hdd_context *hdd_ctx = wiphy_priv(wiphy);
 
 	errno = wlan_hdd_validate_context(hdd_ctx);
-	if (0 != errno) {
-		if (pld_is_low_power_mode(hdd_ctx->parent_dev))
-			hdd_debug("low power mode (Deep Sleep/Hibernate)");
-		else
-			return errno;
-	}
+	if (0 != errno)
+		return errno;
 
 	/*
 	 * Flush the idle shutdown before ops start.This is done here to avoid
@@ -2920,7 +2915,6 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 	int status;
 	struct hdd_station_ctx *sta_ctx;
 	static bool is_rate_limited;
-	struct wlan_objmgr_vdev *vdev;
 
 	hdd_enter_dev(ndev);
 
@@ -2943,8 +2937,7 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 	case QDF_STA_MODE:
 	case QDF_P2P_CLIENT_MODE:
 		sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
-		if (sta_ctx->hdd_reassoc_scenario ||
-		    hdd_is_roaming_in_progress(hdd_ctx)) {
+		if (sta_ctx->hdd_reassoc_scenario) {
 			hdd_debug("Roaming is in progress, rej this req");
 			return -EINVAL;
 		}
@@ -2972,13 +2965,7 @@ static int __wlan_hdd_cfg80211_get_txpower(struct wiphy *wiphy,
 	    is_rate_limited) {
 		hdd_debug("Modules not enabled/rate limited, use cached stats");
 		/* Send cached data to upperlayer*/
-		vdev = hdd_objmgr_get_vdev(adapter);
-		if (!vdev) {
-			hdd_err("vdev is NULL");
-			return -EINVAL;
-		}
-		ucfg_mc_cp_stats_get_tx_power(vdev, dbm);
-		hdd_objmgr_put_vdev(vdev);
+		*dbm = adapter->hdd_stats.class_a_stat.max_pwr;
 		return 0;
 	}
 
