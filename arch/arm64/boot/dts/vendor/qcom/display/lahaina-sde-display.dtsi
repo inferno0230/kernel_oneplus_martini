@@ -276,8 +276,3 @@
 		};
 	};
 };
-
-//#ifdef OPLUS_FEATURE_PXLW_IRIS5
-#include "pxlw/pxlw-iris5.dtsi"
-#include "pxlw/dsi-panel-pxlw.dtsi"
-//#endif
