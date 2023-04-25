@@ -29,7 +29,6 @@
 #endif
 
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
 #include "sde_trace.h"
 
 int nolp_state = 0;
@@ -227,17 +226,6 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 	}
 #endif
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (gpio_is_valid(panel->vsync_switch_gpio)) {
-			rc = gpio_request(panel->vsync_switch_gpio, "vsync_switch_gpio");
-			if (rc) {
-				DSI_ERR("adfr request for vsync_switch_gpio failed, rc=%d\n", rc);
-			}
-		}
-	}
-#endif /*OPLUS_BUG_STABILITY*/
-
 	goto error;
 error_release_mode_sel:
 	if (gpio_is_valid(panel->bl_config.en_gpio))
@@ -278,13 +266,6 @@ static int dsi_panel_gpio_release(struct dsi_panel *panel)
 	if (gpio_is_valid(r_config->panel_vddr_aod_en_gpio))
 		gpio_free(r_config->panel_vddr_aod_en_gpio);
 #endif
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (gpio_is_valid(panel->vsync_switch_gpio))
-			gpio_free(panel->vsync_switch_gpio);
-	}
-#endif /*OPLUS_BUG_STABILITY*/
 
 	return rc;
 }
@@ -431,21 +412,6 @@ static int dsi_panel_set_pinctrl_state(struct dsi_panel *panel, bool enable)
 	if (rc)
 		DSI_ERR("[%s] failed to set pin state, rc=%d\n",
 				panel->name, rc);
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support() &&
-		(oplus_adfr_get_vsync_mode() == OPLUS_DOUBLE_TE_VSYNC)) {
-		if (enable)
-			state = panel->pinctrl.te1_active;
-		else
-			state = panel->pinctrl.te1_suspend;
-
-		rc = pinctrl_select_state(panel->pinctrl.pinctrl, state);
-		if (rc)
-			DSI_ERR("[%s] failed to set te1 pin state, rc=%d\n",
-					panel->name, rc);
-	}
-#endif
 
 	return rc;
 }
@@ -870,27 +836,6 @@ static int dsi_panel_pinctrl_init(struct dsi_panel *panel)
 		panel->pinctrl.pwm_pin = NULL;
 		DSI_DEBUG("failed to get pinctrl pwm_pin");
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support() &&
-		(oplus_adfr_get_vsync_mode() == OPLUS_DOUBLE_TE_VSYNC)) {
-		panel->pinctrl.te1_active =
-			pinctrl_lookup_state(panel->pinctrl.pinctrl, "te1_active");
-		if (IS_ERR_OR_NULL(panel->pinctrl.te1_active)) {
-			rc = PTR_ERR(panel->pinctrl.te1_active);
-			DSI_ERR("failed to get pinctrl te1_active state, rc=%d\n", rc);
-			goto error;
-		}
-
-		panel->pinctrl.te1_suspend =
-			pinctrl_lookup_state(panel->pinctrl.pinctrl, "te1_suspend");
-		if (IS_ERR_OR_NULL(panel->pinctrl.te1_suspend)) {
-			rc = PTR_ERR(panel->pinctrl.te1_suspend);
-			DSI_ERR("failed to get pinctrl te1_suspend state, rc=%d\n", rc);
-			goto error;
-		}
-	}
-#endif
 
 error:
 	return rc;
@@ -2467,7 +2412,6 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-qsync-min-fps-8-command",
 	"qcom,mdss-dsi-qsync-min-fps-9-command",
 	"qcom,mdss-dsi-fakeframe-command",
-	"qcom,mdss-dsi-adfr-pre-switch-command",
 	"qcom,mdss-dsi-dly-on-command",
 	"qcom,mdss-dsi-dly-off-command",
 	"qcom,mdss-dsi-seed-dc-0-command",
@@ -2570,7 +2514,6 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-qsync-min-fps-8-command-state",
 	"qcom,mdss-dsi-qsync-min-fps-9-command-state",
 	"qcom,mdss-dsi-fakeframe-command-state",
-	"qcom,mdss-dsi-adfr-pre-switch-command-state",
 	"qcom,mdss-dsi-dly-on-command-state",
 	"qcom,mdss-dsi-dly-off-command-state",
 	"qcom,mdss-dsi-seed-dc-0-command-state",
@@ -3127,15 +3070,6 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel)
 				 panel->name, rc);
 		}
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		panel->vsync_switch_gpio = utils->get_named_gpio(utils->data, "qcom,vsync-switch-gpio", 0);
-		if (!gpio_is_valid(panel->vsync_switch_gpio)) {
-			DSI_DEBUG("[%s] vsync_switch_gpio is not set, rc=%d\n", panel->name, rc);
-		}
-	}
-#endif /*OPLUS_BUG_STABILITY*/
 
 	panel->reset_config.lcd_mode_sel_gpio = utils->get_named_gpio(
 		utils->data, mode_set_gpio_name, 0);
@@ -4505,10 +4439,6 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		goto error;
 	}
 
-#ifdef OPLUS_BUG_STABILITY
-	oplus_adfr_init(panel);
-#endif
-
 	rc = panel->panel_ops.parse_gpios(panel);
 	if (rc) {
 		DSI_ERR("failed to parse panel gpios, rc=%d\n", rc);
@@ -5126,12 +5056,6 @@ int dsi_panel_get_mode(struct dsi_panel *panel,
 			mode->panel_mode = panel->panel_mode;
 		}
 
-#ifdef OPLUS_BUG_STABILITY
-		// ignore the return result
-		if (oplus_adfr_is_support()) {
-			dsi_panel_parse_adfr(mode, utils);
-		}
-#endif
 
 #ifdef OPLUS_BUG_STABILITY
 		rc = dsi_panel_parse_vsync_config(mode, utils);
@@ -5299,14 +5223,6 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 		dsi_pwr_panel_regulator_mode_set(&panel->power_info,
 			"ibb", REGULATOR_MODE_IDLE);
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (oplus_adfr_get_vsync_mode() == OPLUS_EXTERNAL_TE_TP_VSYNC)
-			/* switch to te vsync because tp vsync is 15hz on AOD mode */
-			oplus_adfr_aod_fod_vsync_switch(panel, true);
-	}
-#endif
-
 	if ((!strcmp(panel->oplus_priv.vendor_name, "S6E3HC3") && (panel->panel_id2 >= 5)) ||
 		(!strcmp(panel->oplus_priv.vendor_name, "AMB670YF01") && (panel->panel_id2 >= 5))) {
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LP1_PVT);
@@ -5413,12 +5329,6 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
 #ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (oplus_adfr_get_vsync_mode() == OPLUS_EXTERNAL_TE_TP_VSYNC)
-			/* switch to tp vsync because AOD mdoe is off */
-			oplus_adfr_aod_fod_vsync_switch(panel, false);
-	}
-
 	set_oplus_display_power_status(OPLUS_DISPLAY_POWER_ON);
 #endif
 exit:
@@ -5585,7 +5495,6 @@ int dsi_panel_send_qsync_off_dcs(struct dsi_panel *panel,
 #ifdef OPLUS_BUG_STABILITY
 	DSI_INFO("ctrl:%d qsync off\n", ctrl_idx);
 	SDE_ATRACE_INT("qsync_mode_cmd", 0);
-	SDE_ATRACE_INT("oplus_adfr_qsync_mode_minfps_cmd", panel->cur_mode->timing.refresh_rate);
 #else
 	DSI_DEBUG("ctrl:%d qsync off\n", ctrl_idx);
 #endif /*OPLUS_BUG_STABILITY*/
@@ -5758,16 +5667,6 @@ int dsi_panel_switch(struct dsi_panel *panel)
 		       panel->name, rc);
 
 #ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		/* reset adfr auto mode status as panel mode will be change after timing switch */
-		dsi_panel_adfr_status_reset(panel);
-		if (oplus_adfr_get_vsync_mode() == OPLUS_EXTERNAL_TE_TP_VSYNC) {
-			oplus_adfr_resolution_vsync_switch(panel);
-		} else {
-			/* make sure the cur_h_active is the newest status */
-			panel->cur_h_active = panel->cur_mode->timing.h_active;
-		}
-	}
 	if (!strcmp(panel->name, "samsung ams662zs01 dvt dsc cmd mode panel")) {
 		dsi_panel_fps_change(panel);
 	}
@@ -5812,12 +5711,6 @@ int dsi_panel_enable(struct dsi_panel *panel)
 #endif
 	mutex_lock(&panel->panel_lock);
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		oplus_adfr_vsync_switch_reset(panel);
-	}
-#endif /*OPLUS_BUG_STABILITY*/
-
 		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
@@ -5827,9 +5720,6 @@ int dsi_panel_enable(struct dsi_panel *panel)
 
 #ifdef OPLUS_BUG_STABILITY
 	oplus_display_panel_enable();
-	if (oplus_adfr_is_support()) {
-		dsi_panel_adfr_status_reset(panel);
-	}
 #endif /*OPLUS_BUG_STABILITY*/
 
 #ifdef OPLUS_BUG_STABILITY

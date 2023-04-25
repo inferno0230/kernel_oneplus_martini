@@ -53,10 +53,6 @@ extern int oplus_underbrightness_alpha;
 extern int msm_drm_notifier_call_chain(unsigned long val, void *v);
 #endif
 
-#ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
-#endif
-
 #define SDE_PSTATES_MAX (SDE_STAGE_MAX * 4)
 #define SDE_MULTIRECT_PLANE_MAX (SDE_STAGE_MAX * 2)
 
@@ -2647,12 +2643,6 @@ static void sde_crtc_frame_event_work(struct kthread_work *work)
 		_sde_crtc_retire_event(fevent->connector, fevent->ts,
 				(fevent->event & SDE_ENCODER_FRAME_EVENT_ERROR)
 				? SDE_FENCE_SIGNAL_ERROR : SDE_FENCE_SIGNAL);
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		sde_crtc_adfr_handle_frame_event(crtc, fevent);
-	}
-#endif
 
 	if (fevent->event & SDE_ENCODER_FRAME_EVENT_PANEL_DEAD)
 		SDE_ERROR("crtc%d ts:%lld received panel dead event\n",

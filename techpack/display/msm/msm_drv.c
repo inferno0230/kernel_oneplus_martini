@@ -53,10 +53,6 @@
 #include "sde_dbg.h"
 #include "sde/sde_encoder.h"
 
-#ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
-#endif
-
 #if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
 #ifdef CONFIG_OPLUS_CRTC_COMMIT_MUTEX_OPT
 #include <linux/sched_assist/sched_assist_common.h>
@@ -430,12 +426,6 @@ static int msm_drm_uninit(struct device *dev)
 		}
 	}
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		oplus_adfr_thread_destroy(priv);
-	}
-#endif
-
 	drm_kms_helper_poll_fini(ddev);
 	if (kms && kms->funcs)
 		kms->funcs->debugfs_destroy(kms);
@@ -733,19 +723,6 @@ static int msm_drm_display_thread_create(struct sched_param param,
 		priv->pp_event_thread = NULL;
 		return ret;
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-	/**
-	 * Use a seperate adfr thread for fake frame.
-	 * Because fake frame maybe causes crtc commit/event more heavy.
-	 * This can lead to commit miss TE/retire event delay
-	 */
-	if (oplus_adfr_is_support()) {
-		if (oplus_adfr_thread_create(&param, priv, ddev, dev)) {
-			return -EINVAL;
-		}
-	}
-#endif
 
 	return 0;
 

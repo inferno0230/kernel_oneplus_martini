@@ -21,7 +21,6 @@
 #include "oplus_display_panel_seed.h"
 #include "oplus_ffl.h"
 #include "oplus_aod.h"
-#include "oplus_adfr.h"
 
 struct oplus_apollo_backlight_list *p_apollo_backlight = NULL;
 static int oplus_display_set_apollo_backlight_value(void *data);
@@ -80,8 +79,6 @@ static const struct panel_ioctl_desc panel_ioctls[] = {
 	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_FP_PRESS, oplus_display_panel_notify_fp_press),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_DITHER_STATUS, oplus_display_panel_set_dither),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_DITHER_STATUS, oplus_display_panel_get_dither),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_TE_REFCOUNT_ENABLE, oplus_enable_te_refcount),
-	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_TE_REFCOUNT_ENABLE, oplus_get_te_fps),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_DP_SUPPORT, oplus_display_get_dp_support),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_SET_CABC_STATUS, oplus_display_set_cabc_status),
 	PANEL_IOCTL_DEF(PANEL_IOCTL_GET_CABC_STATUS, oplus_display_get_cabc_status),

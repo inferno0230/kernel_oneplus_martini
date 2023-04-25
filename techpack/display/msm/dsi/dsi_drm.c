@@ -13,10 +13,6 @@
 #include "sde_trace.h"
 #include "sde_dbg.h"
 
-#ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
-#endif
-
 #define to_dsi_bridge(x)     container_of((x), struct dsi_bridge, base)
 #define to_dsi_state(x)      container_of((x), struct dsi_connector_state, base)
 
@@ -390,13 +386,6 @@ static bool dsi_bridge_mode_fixup(struct drm_bridge *bridge,
 	dsi_mode.dsi_mode_flags = panel_dsi_mode->dsi_mode_flags;
 	dsi_mode.timing.dsc_enabled = dsi_mode.priv_info->dsc_enabled;
 	dsi_mode.timing.dsc = &dsi_mode.priv_info->dsc;
-
-#ifdef OPLUS_BUG_STABILITY
-	/* add vsync spurce info from panel_dsi_mode to dsi_mode */
-	if (oplus_adfr_is_support()) {
-		dsi_mode.vsync_source = panel_dsi_mode->vsync_source;
-	}
-#endif
 
 	rc = dsi_display_validate_mode(c_bridge->display, &dsi_mode,
 			DSI_VALIDATE_FLAG_ALLOW_ADJUST);

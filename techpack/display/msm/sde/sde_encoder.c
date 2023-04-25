@@ -51,10 +51,6 @@
 #endif
 
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
-#endif
-
-#ifdef OPLUS_BUG_STABILITY
 #include <linux/ktime.h>
 #endif
 
@@ -2271,38 +2267,6 @@ static int sde_encoder_virt_modeset_rc(struct drm_encoder *drm_enc,
 			_sde_encoder_modeset_helper_locked(drm_enc,
 					SDE_ENC_RC_EVENT_POST_MODESET);
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (oplus_adfr_get_vsync_mode() == OPLUS_DOUBLE_TE_VSYNC) {
-			vsync_source = oplus_get_vsync_source(adj_mode);
-			SDE_INFO("kVRR vsync source switch from [%d] to [%d]\n", sde_enc->te_source, vsync_source);
-
-			/* some case we must use TE for timing switch, so first use TE then change back to TP */
-			if (oplus_adfr_need_deferred_vsync_source_switch(drm_enc, adj_mode)) {
-				SDE_INFO("rayz: vsync source switched to %d\n", vsync_source);
-
-				if (sde_enc->te_source == OPLUS_TE_SOURCE_TE) {
-					SDE_INFO("kVRR vsync source is %d already before timing switch\n", sde_enc->te_source);
-				} else {
-					sde_enc->te_source = OPLUS_TE_SOURCE_TE;
-					SDE_INFO("kVRR vsync source switched to %d before timing switch\n", sde_enc->te_source);
-					sde_encoder_helper_switch_vsync(drm_enc, false);
-				}
-				SDE_ATRACE_INT("te_source", sde_enc->te_source);
-
-				sde_enc->need_te_source_switch = true;
-				sde_enc->need_te_source = vsync_source;
-				SDE_INFO("kVRR need deferred vsync source siwtch to %d\n", vsync_source);
-			} else {
-				if (sde_enc->te_source != vsync_source) {
-					SDE_INFO("rayz: vsync source switched to %d\n", vsync_source);
-					sde_enc->te_source = vsync_source;
-					sde_encoder_helper_switch_vsync(drm_enc, false);
-				}
-			}
-		}
-	}
-#endif
 	}
 
 	return 0;
@@ -4493,25 +4457,12 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 			if (sde_enc->cur_master &&
 					sde_connector_is_qsync_updated(
 					sde_enc->cur_master->connector)) {
-#ifdef OPLUS_BUG_STABILITY
-				if (oplus_adfr_is_support()) {
-					SDE_ATRACE_BEGIN("flush_qsync");
-				}
-#endif
 				_helper_flush_qsync(phys);
 
 				if (is_cmd_mode)
 					_sde_encoder_update_rsc_client(drm_enc,
 							true);
 
-#ifdef OPLUS_BUG_STABILITY
-				// fix qsync bug from case 04843535
-				if (oplus_adfr_is_support()) {
-					if (sde_enc->disp_info.display_type == SDE_CONNECTOR_PRIMARY)
-						_sde_encoder_update_rsc_client(drm_enc, true);
-					SDE_ATRACE_END("flush_qsync");
-				}
-#endif
 			}
 		}
 	}
@@ -4665,15 +4616,6 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error,
 	/* All phys encs are ready to go, trigger the kickoff */
 	_sde_encoder_kickoff_phys(sde_enc, config_changed);
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (sde_encoder_is_dsi_display(drm_enc)) {
-			sde_encoder_adfr_kickoff(sde_enc->crtc, drm_enc,
-				sde_enc->cur_master->connector);
-		}
-	}
-#endif
-
 	/* allow phys encs to handle any post-kickoff business */
 	for (i = 0; i < sde_enc->num_phys_encs; i++) {
 		phys = sde_enc->phys_encs[i];
@@ -4820,19 +4762,6 @@ int sde_encoder_prepare_commit(struct drm_encoder *drm_enc)
 				      sde_enc->cur_master->connector->base.id,
 				      rc);
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (sde_encoder_is_dsi_display(drm_enc)) {
-			if (sde_enc->cur_master && sde_enc->cur_master->connector) {
-				sde_encoder_adfr_prepare_commit(sde_enc->crtc, drm_enc,
-					sde_enc->cur_master->connector);
-			} else {
-				sde_encoder_adfr_prepare_commit(NULL, NULL, NULL);
-			}
-		}
-	}
-#endif
 
 	return ret;
 }
@@ -5482,16 +5411,6 @@ struct drm_encoder *sde_encoder_init_with_ops(
 	kthread_init_work(&sde_enc->esd_trigger_work,
 			sde_encoder_esd_trigger_work_handler);
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		hrtimer_init(&sde_enc->fakeframe_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-		sde_enc->fakeframe_timer.function = sde_encoder_fakeframe_timer_handler;
-
-		kthread_init_work(&sde_enc->fakeframe_work,
-				sde_encoder_fakeframe_work_handler);
-	}
-#endif
-
 	memcpy(&sde_enc->disp_info, disp_info, sizeof(*disp_info));
 
 	SDE_DEBUG_ENC(sde_enc, "created\n");
@@ -5926,76 +5845,6 @@ void sde_encoder_enable_recovery_event(struct drm_encoder *encoder)
 }
 
 #ifdef OPLUS_BUG_STABILITY
-
-// queue the fakeframe work to adfr worker
-int sde_encoder_adfr_trigger_fakeframe(void *enc)
-{
-	struct drm_encoder *drm_enc = enc;
-	struct sde_encoder_virt *sde_enc;
-	struct msm_drm_private *priv;
-	struct msm_drm_thread *event_thread;
-
-	sde_enc = to_sde_encoder_virt(drm_enc);
-	if (!sde_enc || !sde_enc->crtc) {
-		SDE_ERROR("invalid encoder parameters %d\n", !sde_enc);
-		return -EINVAL;
-	}
-
-	priv = drm_enc->dev->dev_private;
-
-	if (sde_enc->crtc->index >= ARRAY_SIZE(priv->adfr_thread)) {
-		SDE_ERROR("invalid crtc index:%u\n",
-				sde_enc->crtc->index);
-		return -EINVAL;
-	}
-	event_thread = &priv->adfr_thread[sde_enc->crtc->index];
-	if (!event_thread) {
-		SDE_ERROR("event_thread not found for crtc:%d\n",
-				sde_enc->crtc->index);
-		return -EINVAL;
-	}
-
-	kthread_queue_work(&event_thread->worker,
-				&sde_enc->fakeframe_work);
-
-	return 0;
-}
-
-// fakevsync timer callback function
-enum hrtimer_restart sde_encoder_fakeframe_timer_handler(struct hrtimer *timer)
-{
-	struct sde_encoder_virt *sde_enc =
-			from_timer(sde_enc, timer, fakeframe_timer);
-
-	sde_encoder_adfr_trigger_fakeframe(&sde_enc->base);
-
-	return HRTIMER_NORESTART;
-}
-
-void oplus_adfr_fakeframe_timer_start(void *enc, int deferred_ms)
-{
-	struct drm_encoder *drm_enc = enc;
-	struct sde_encoder_virt *sde_enc;
-
-	sde_enc = to_sde_encoder_virt(drm_enc);
-	hrtimer_start(&sde_enc->fakeframe_timer, ms_to_ktime(deferred_ms), HRTIMER_MODE_REL);
-}
-
-// cancel the fakeframe timer
-int sde_encoder_adfr_cancel_fakeframe(void *enc)
-{
-	struct drm_encoder *drm_enc = enc;
-	struct sde_encoder_virt *sde_enc;
-
-	sde_enc = to_sde_encoder_virt(drm_enc);
-
-	SDE_ATRACE_BEGIN("sde_encoder_adfr_cancel_fakeframe");
-	hrtimer_cancel(&sde_enc->fakeframe_timer);
-	SDE_ATRACE_END("sde_encoder_adfr_cancel_fakeframe");
-
-	return 0;
-}
-
 // fakeframe work function
 void sde_encoder_fakeframe_work_handler(struct kthread_work *work)
 {
@@ -6020,7 +5869,6 @@ void sde_encoder_fakeframe_work_handler(struct kthread_work *work)
 
 	drm_conn = sde_enc->cur_master->connector;
 
-	sde_connector_send_fakeframe(drm_conn);
 }
 #endif
 

@@ -67,10 +67,6 @@
 #include "oplus_onscreenfingerprint.h"
 #endif
 
-#ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
-#endif
-
 /* defines for secure channel call */
 #define MEM_PROTECT_SD_CTRL_SWITCH 0x18
 #define MDP_DEVICE_ID            0x1A
@@ -1534,24 +1530,6 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
 
 	for_each_old_crtc_in_state(old_state, crtc, old_crtc_state, i)
 		_sde_kms_release_splash_resource(sde_kms, crtc);
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (oplus_adfr_get_vsync_mode() == OPLUS_DOUBLE_TE_VSYNC) {
-			SDE_ATRACE_BEGIN("sde_kms_adfr_vsync_source_switch");
-			for_each_old_crtc_in_state(old_state, crtc, old_crtc_state, i) {
-				sde_kms_adfr_vsync_source_switch(kms, crtc);
-			}
-			SDE_ATRACE_END("sde_kms_adfr_vsync_source_switch");
-		} else if (oplus_adfr_get_vsync_mode() == OPLUS_EXTERNAL_TE_TP_VSYNC) {
-			SDE_ATRACE_BEGIN("sde_kms_adfr_vsync_switch");
-			for_each_old_crtc_in_state(old_state, crtc, old_crtc_state, i) {
-				sde_kms_adfr_vsync_switch(kms, crtc);
-			}
-			SDE_ATRACE_END("sde_kms_adfr_vsync_switch");
-		}
-	}
-#endif
 
 	SDE_EVT32_VERBOSE(SDE_EVTLOG_FUNC_EXIT);
 	SDE_ATRACE_END("sde_kms_complete_commit");

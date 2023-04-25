@@ -16,7 +16,6 @@
 #include "oplus_aod.h"
 #include "dsi_defs.h"
 #include "sde_trace.h"
-#include "oplus_adfr.h"
 
 int oplus_dimlayer_bl = 0;
 EXPORT_SYMBOL(oplus_dimlayer_bl);
@@ -126,12 +125,6 @@ void dsi_panel_tx_cmd_hbm_post_check(struct dsi_panel *panel, enum dsi_cmd_set_t
 			}
 			break;
 		case DSI_CMD_HBM_ON:
-			if (oplus_adfr_is_support()) {
-				if (oplus_adfr_get_vsync_mode() == OPLUS_EXTERNAL_TE_TP_VSYNC)
-					/* switch to tp vsync because aod off */
-					oplus_adfr_aod_fod_vsync_switch(panel, false);
-			}
-			break;
 		case DSI_CMD_AOD_HBM_OFF_PVT:
 		case DSI_CMD_AOD_HBM_OFF:
 			if (oplus_hbm_status.hbm_pvt_status == 1) {
@@ -139,12 +132,6 @@ void dsi_panel_tx_cmd_hbm_post_check(struct dsi_panel *panel, enum dsi_cmd_set_t
 			}
 			break;
 		case DSI_CMD_HBM_OFF:
-			if (oplus_adfr_is_support()) {
-				if (oplus_adfr_get_vsync_mode() == OPLUS_EXTERNAL_TE_TP_VSYNC)
-					/* switch to tp vsync because unlock successfully or panel disable */
-					oplus_adfr_aod_fod_vsync_switch(panel, false);
-			}
-			break;
 		case DSI_CMD_SET_NOLP:
 		case DSI_CMD_SET_OFF:
 		case DSI_CMD_SET_NOLP_PVT:

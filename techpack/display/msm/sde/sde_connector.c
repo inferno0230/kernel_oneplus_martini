@@ -27,10 +27,6 @@
 #endif
 
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
-#endif
-
-#ifdef OPLUS_BUG_STABILITY
 #include "sde_trace.h"
 
 extern struct oplus_apollo_bk apollo_bk;
@@ -991,54 +987,8 @@ void sde_connector_set_qsync_params(struct drm_connector *connector)
 					c_conn->qsync_mode, qsync_propval);
 			c_conn->qsync_updated = true;
 			c_conn->qsync_mode = qsync_propval;
-#ifdef OPLUS_BUG_STABILITY
-			if (oplus_adfr_is_support()) {
-				if (c_conn->qsync_mode == SDE_RM_QSYNC_DISABLED) {
-					/* qsync disable need change min fps */
-					c_conn->qsync_curr_dynamic_min_fps = 0;
-					c_conn->qsync_deferred_window_status = SET_WINDOW_IMMEDIATELY;
-				} else {
-					/* qsync enable no need change window */
-					c_conn->qsync_dynamic_min_fps = 0;
-				}
-			}
-#endif
 		}
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		/*
-		prop_dirty = msm_property_is_dirty(&c_conn->property_info,
-						&c_state->property_state,
-						CONNECTOR_PROP_QSYNC_MIN_FPS);
-		*/
-		prop_dirty = oplus_adfr_qsync_mode_minfps_is_updated();
-		if (prop_dirty) {
-			/*
-			qsync_propval = sde_connector_get_property(c_conn->base.state,
-							CONNECTOR_PROP_QSYNC_MIN_FPS);
-			*/
-			qsync_propval = oplus_adfr_get_qsync_mode_minfps();
-			if (oplus_adfr_has_auto_mode(qsync_propval)) {
-				SDE_DEBUG("kVRR updated for auto mode %08X\n", qsync_propval);
-			} else {
-				if (qsync_propval != c_conn->qsync_dynamic_min_fps) {
-					SDE_INFO("kVRR updated qsync min fps %d -> %d\n",
-							c_conn->qsync_dynamic_min_fps, qsync_propval);
-					c_conn->qsync_updated = true;
-					c_conn->qsync_curr_dynamic_min_fps = qsync_propval;
-					if (qsync_propval == 0) {
-						/* closing window immediately when qsync off */
-						c_conn->qsync_deferred_window_status = SET_WINDOW_IMMEDIATELY;
-					} else {
-						c_conn->qsync_deferred_window_status = DEFERRED_WINDOW_START;
-					}
-				}
-			}
-		}
-	}
-#endif
 }
 
 void sde_connector_complete_qsync_commit(struct drm_connector *conn,
@@ -1235,11 +1185,6 @@ int sde_connector_prepare_commit(struct drm_connector *connector)
 	if (c_conn->qsync_updated) {
 		params.qsync_mode = c_conn->qsync_mode;
 		params.qsync_update = true;
-#ifdef OPLUS_BUG_STABILITY
-		if (oplus_adfr_is_support()) {
-			params.qsync_dynamic_min_fps = c_conn->qsync_curr_dynamic_min_fps;
-		}
-#endif
 	}
 
 	rc = c_conn->ops.prepare_commit(c_conn->display, &params);
@@ -1876,24 +1821,6 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		msm_property_set_dirty(&c_conn->property_info,
 				&c_state->property_state, idx);
 		break;
-#ifdef OPLUS_BUG_STABILITY
-	case CONNECTOR_PROP_QSYNC_MIN_FPS:
-		if (oplus_adfr_is_support()) {
-			SDE_DEBUG("kVRR set qsync minfps dirty with %llu[%08X]\n", val, val);
-
-			/* minfps maybe disappear after state change, so handle it early */
-			if (oplus_adfr_handle_auto_mode(val)) {
-				SDE_DEBUG("kVRR updated auto mode %08X\n", val);
-			} else {
-				oplus_adfr_handle_qsync_mode_minfps(val);
-				SDE_DEBUG("kVRR updated qsync mode minfps %08X\n", val);
-			}
-
-			msm_property_set_dirty(&c_conn->property_info,
-					&c_state->property_state, idx);
-		}
-		break;
-#endif
 	default:
 		break;
 	}
@@ -2599,36 +2526,6 @@ static void sde_connector_early_unregister(struct drm_connector *connector)
 	/* debugfs under connector->debugfs are deleted by drm_debugfs */
 }
 
-#ifdef OPLUS_BUG_STABILITY
-static int drm_mode_compare_for_adfr(void *priv, struct list_head *lh_a, struct list_head *lh_b)
-{
-	struct drm_display_mode *a = list_entry(lh_a, struct drm_display_mode, head);
-	struct drm_display_mode *b = list_entry(lh_b, struct drm_display_mode, head);
-	int diff;
-
-	diff = ((b->type & DRM_MODE_TYPE_PREFERRED) != 0) -
-		((a->type & DRM_MODE_TYPE_PREFERRED) != 0);
-	if (diff)
-		return diff;
-	diff = a->hdisplay * a->vdisplay - b->hdisplay * b->vdisplay;
-	if (diff)
-		return diff;
-
-	diff = a->vrefresh - b->vrefresh;
-	if (diff)
-		return diff;
-
-	diff = b->clock - a->clock;
-	return diff;
-}
-
-static void drm_mode_sort_for_adfr(struct list_head *mode_list)
-{
-	list_sort(NULL, mode_list, drm_mode_compare_for_adfr);
-}
-#endif
-
-
 static int sde_connector_fill_modes(struct drm_connector *connector,
 		uint32_t max_width, uint32_t max_height)
 {
@@ -2643,10 +2540,6 @@ static int sde_connector_fill_modes(struct drm_connector *connector,
 
 	mode_count = drm_helper_probe_single_connector_modes(connector,
 			max_width, max_height);
-
-	#ifdef OPLUS_BUG_STABILITY
-	drm_mode_sort_for_adfr(&connector->modes);
-	#endif
 
 	if (sde_conn->ops.set_allowed_mode_switch)
 		sde_conn->ops.set_allowed_mode_switch(connector,
@@ -3186,13 +3079,6 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 					ARRAY_SIZE(e_qsync_mode), 0,
 					CONNECTOR_PROP_QSYNC_MODE);
 
-#ifdef OPLUS_BUG_STABILITY
-		/* add qsync min fps prop when DPU support and ADFR support */
-		if (sde_kms->catalog->has_qsync && oplus_adfr_is_support()) {
-			msm_property_install_range(&c_conn->property_info, "qsync_min_fps",
-					0x0, 0, ~0, 0, CONNECTOR_PROP_QSYNC_MIN_FPS);
-		}
-#endif
 		if (display_info->capabilities & MSM_DISPLAY_CAP_CMD_MODE)
 			msm_property_install_enum(&c_conn->property_info,
 				"frame_trigger_mode", 0, 0,

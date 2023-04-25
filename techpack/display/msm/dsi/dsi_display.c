@@ -27,7 +27,6 @@
 #endif
 
 #ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
 #include <linux/workqueue.h>
 #include <soc/oplus/system/oplus_mm_kevent_fb.h>
 /* Add for panel esd cmd debug */
@@ -553,14 +552,6 @@ static irqreturn_t dsi_display_panel_te_irq_handler(int irq, void *data)
 
 	SDE_EVT32(SDE_EVTLOG_FUNC_CASE1);
 	complete_all(&display->esd_te_gate);
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		if (display->panel->vsync_switch_pending) {
-			complete_all(&display->switch_te_gate);
-			display->panel->vsync_switch_pending = false;
-		}
-	}
-#endif /*OPLUS_BUG_STABILITY*/
 	return IRQ_HANDLED;
 }
 
@@ -583,11 +574,6 @@ static void dsi_display_change_te_irq_status(struct dsi_display *display,
 }
 
 #ifdef OPLUS_BUG_STABILITY
-void dsi_display_adfr_change_te_irq_status(void *disp, bool enable)
-{
-	struct dsi_display *display = disp;
-	dsi_display_change_te_irq_status(display, enable);
-}
 static void dsi_display_panel_err_handler(struct work_struct *work)
 {
 	struct drm_panel_esd_config *esd_config = NULL;
@@ -738,11 +724,6 @@ static void dsi_display_register_te_irq(struct dsi_display *display)
 	}
 
 	init_completion(&display->esd_te_gate);
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		init_completion(&display->switch_te_gate);
-	}
-#endif /*OPLUS_BUG_STABILITY*/
 	te_irq = gpio_to_irq(display->disp_te_gpio);
 
 	/* Avoid deferred spurious irqs with disable_irq() */
@@ -7658,15 +7639,6 @@ int dsi_display_find_mode(struct dsi_display *display,
 	for (i = 0; i < count; i++) {
 		struct dsi_display_mode *m = &display->modes[i];
 
-#ifdef OPLUS_BUG_STABILITY
-		/* diff modes by skew for ADFR */
-		if (oplus_adfr_is_support()) {
-			if (cmp->timing.h_skew != m->timing.h_skew) {
-				continue;
-			}
-		}
-#endif
-
 		if (cmp->timing.v_active == m->timing.v_active &&
 			cmp->timing.h_active == m->timing.h_active &&
 			cmp->timing.refresh_rate == m->timing.refresh_rate &&
@@ -7892,21 +7864,10 @@ int dsi_display_set_mode(struct dsi_display *display,
 		goto error;
 	}
 
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		DSI_INFO("mdp_transfer_time=%d, hactive=%d, vactive=%d, fps=%d, h_skew=%d\n",
-				adj_mode.priv_info->mdp_transfer_time_us,
-				timing.h_active, timing.v_active, timing.refresh_rate, timing.h_skew);
-	} else {
-		DSI_INFO("mdp_transfer_time=%d, hactive=%d, vactive=%d, fps=%d\n",
-				adj_mode.priv_info->mdp_transfer_time_us,
-				timing.h_active, timing.v_active, timing.refresh_rate);
-	}
-#else
 	DSI_INFO("mdp_transfer_time=%d, hactive=%d, vactive=%d, fps=%d\n",
 			adj_mode.priv_info->mdp_transfer_time_us,
 			timing.h_active, timing.v_active, timing.refresh_rate);
-#endif
+
 	SDE_EVT32(adj_mode.priv_info->mdp_transfer_time_us,
 			timing.h_active, timing.v_active, timing.refresh_rate);
 
@@ -8711,34 +8672,7 @@ int dsi_display_pre_commit(void *display,
 				__func__);
 		SDE_EVT32(params->qsync_mode, rc);
 
-#ifdef OPLUS_BUG_STABILITY
-		if (oplus_adfr_is_support()) {
-			// if qsync is disable, just save the min fps value, not tx cmd
-			if (enable) {
-				ret = dsi_display_qsync_update_min_fps(display, params);
-				if (ret)
-					pr_err("%s failed to send qsync update commands\n",
-						__func__);
-				SDE_EVT32(params->qsync_dynamic_min_fps, ret);
-			}
-
-			/* save qsync info, then restore qsync status after panel enable again*/
-			// TODO: think about change timming when panel off case?????
-			((struct dsi_display *)display)->current_qsync_mode = params->qsync_mode;
-			((struct dsi_display *)display)->current_qsync_dynamic_min_fps = params->qsync_dynamic_min_fps;
-		}
-#endif
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-	if (oplus_adfr_is_support()) {
-		ret = dsi_display_auto_mode_update(display);
-		if (ret)
-			pr_err("%s failed to send auto mode update commands\n",
-				__func__);
-		SDE_EVT32(params->qsync_mode, params->qsync_dynamic_min_fps, ret);
-	}
-#endif
 
 	return rc;
 }
@@ -8839,11 +8773,6 @@ int dsi_display_enable(struct dsi_display *display)
 	}
 
 	if (mode->dsi_mode_flags & DSI_MODE_FLAG_DMS) {
-#ifdef OPLUS_BUG_STABILITY
-		if (oplus_adfr_is_support()) {
-			oplus_dsi_display_vsync_switch(display, false);
-		}
-#endif /*OPLUS_BUG_STABILITY*/
 		rc = dsi_panel_switch(display->panel);
 		if (rc)
 			DSI_ERR("[%s] failed to switch DSI panel mode, rc=%d\n",
@@ -8880,14 +8809,6 @@ error_disable_panel:
 	(void)dsi_panel_disable(display->panel);
 error:
 	mutex_unlock(&display->display_lock);
-
-#ifdef OPLUS_BUG_STABILITY
-	/* restore qsync after display_lock unlock*/
-	/* ignore the return value */
-	if (oplus_adfr_is_support()) {
-		dsi_display_qsync_restore(display);
-	}
-#endif
 
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);
 	return rc;
@@ -9093,15 +9014,6 @@ int dsi_display_disable(struct dsi_display *display)
 		display->panel->panel_initialized = false;
 		display->panel->power_mode = SDE_MODE_DPMS_OFF;
 	}
-
-#ifdef OPLUS_BUG_STABILITY
-    /* if qsync mode is on, force qsync window to be closed to avoid tearing issue */
-    if (oplus_adfr_is_support()) {
-        if (display->current_qsync_mode) {
-            display->force_qsync_mode_off = true;
-        }
-    }
-#endif /*OPLUS_BUG_STABILITY*/
 
 	mutex_unlock(&display->display_lock);
 	SDE_EVT32(SDE_EVTLOG_FUNC_EXIT);

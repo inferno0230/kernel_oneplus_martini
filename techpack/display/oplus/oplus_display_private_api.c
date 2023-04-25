@@ -30,10 +30,6 @@
 #include "dsi_pwr.h"
 #include "oplus_display_panel.h"
 
-#ifdef OPLUS_BUG_STABILITY
-#include "oplus_adfr.h"
-#endif
-
 extern int hbm_mode;
 int spr_mode = 0;
 int round_count_mode = 0;
@@ -2830,16 +2826,6 @@ int dsi_display_oplus_set_power(struct drm_connector *connector,
 			break;
 		}
 
-#ifdef OPLUS_BUG_STABILITY
-		/*switch to panel TP-VSYNC while exit aod scene*/
-		if (oplus_adfr_is_support()) {
-			if (power_mode == SDE_MODE_DPMS_LP1) {
-				if (oplus_adfr_get_vsync_mode() == OPLUS_TE_SOURCE_TP)
-					sde_encoder_adfr_aod_fod_source_switch(display, OPLUS_TE_SOURCE_TE);
-			}
-        }
-#endif
-
 		if (notify_off) {
 			msm_drm_notifier_call_chain(MSM_DRM_EVENT_BLANK,
 						    &notifier_data);
@@ -2864,14 +2850,6 @@ int dsi_display_oplus_set_power(struct drm_connector *connector,
 
 		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
 				(display->panel->power_mode == SDE_MODE_DPMS_LP2)) {
-			#ifdef OPLUS_BUG_STABILITY
-			if (oplus_adfr_is_support()) {
-				/*switch to panel TP-VSYNC while exit aod scene*/
-				if (oplus_adfr_get_vsync_mode() == OPLUS_DOUBLE_TE_VSYNC) {
-					sde_encoder_adfr_aod_fod_source_switch(display, OPLUS_TE_SOURCE_TP);
-				}
-			}
-			#endif
 			rc = dsi_panel_set_nolp(display->panel);
 			set_oplus_display_scene(OPLUS_DISPLAY_NORMAL_SCENE);
 		}
@@ -3194,11 +3172,6 @@ static OPLUS_ATTR(shutdownflag, S_IRUGO | S_IWUSR, oplus_get_shutdownflag,
 		   oplus_set_shutdownflag);
 #endif /*OPLUS_FEATURE_TP_BASIC*/
 
-#ifdef OPLUS_BUG_STABILITY
-static OPLUS_ATTR(adfr_debug, S_IRUGO|S_IWUSR, oplus_adfr_get_debug, oplus_adfr_set_debug);
-static OPLUS_ATTR(vsync_switch, S_IRUGO|S_IWUSR, oplus_get_vsync_switch, oplus_set_vsync_switch);
-#endif
-
 static OPLUS_ATTR(backlight_smooth, S_IRUGO|S_IWUSR, oplus_backlight_smooth_get_debug,
 			oplus_backlight_smooth_set_debug);
 
@@ -3240,10 +3213,6 @@ static struct attribute *oplus_display_attrs[] = {
 	&oplus_attr_max_brightness.attr,
 	&oplus_attr_ccd_check.attr,
 	&oplus_attr_panel_pwr.attr,
-#ifdef OPLUS_BUG_STABILITY
-	&oplus_attr_adfr_debug.attr,
-	&oplus_attr_vsync_switch.attr,
-#endif
 	&oplus_attr_backlight_smooth.attr,
 /*#ifdef OPLUS_BUG_STABILITY*/
 	&oplus_attr_dsi_log_switch.attr,

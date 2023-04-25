@@ -155,8 +155,6 @@ msm_drm-$(CONFIG_DRM_OPLUS) += ../oplus/oplus_dsi_support.o \
 	../oplus/oplus_bl.o
 #endif /*OPLUS_BUG_STABILITY*/
 
-msm_drm-$(CONFIG_DRM_OPLUS) += ../oplus/oplus_adfr.o
-
 msm_drm-$(CONFIG_HDCP_QSEECOM) += ../hdcp/msm_hdcp.o \
 
 msm_drm-$(CONFIG_MSM_SDE_ROTATOR) += ../rotator/sde_rotator_dev.o \
@@ -178,6 +176,6 @@ msm_drm-$(CONFIG_MSM_SDE_ROTATOR) += ../rotator/sde_rotator_dev.o \
 
 oplus_notify-$(CONFIG_DRM_OPLUS_NOTIFY) += ../oplus/oplus_notify.o
 
-obj-$(CONFIG_DISPLAY_BUILD)	+= msm_drm.o
+obj-$(CONFIG_DISPLAY_BUILD)    += msm_drm.o
 obj-$(CONFIG_DRM_OPLUS_NOTIFY) += oplus_notify.o
 obj-$(CONFIG_DRM_FBDEV_EMULATION) += msm_fbdev.o

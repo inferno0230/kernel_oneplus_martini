@@ -14,7 +14,6 @@
 #include "oplus_onscreenfingerprint.h"
 #include "oplus_display_private_api.h"
 #include "oplus_display_panel.h"
-#include "oplus_adfr.h"
 #include "oplus_aod.h"
 
 #define DSI_PANEL_OPLUS_DUMMY_VENDOR_NAME  "PanelVendorDummy"
@@ -565,15 +564,6 @@ int dsi_panel_parse_oplus_config(struct dsi_panel *panel)
 			}
 			pr_info("dc apollo sync enable(%d,%d,%d)\n", panel->oplus_priv.dc_apollo_sync_brightness_level,
 					panel->oplus_priv.dc_apollo_sync_brightness_level_pcc, panel->oplus_priv.dc_apollo_sync_brightness_level_pcc_min);
-		}
-	}
-
-	if (oplus_adfr_is_support()) {
-		if (oplus_adfr_get_vsync_mode() == OPLUS_EXTERNAL_TE_TP_VSYNC) {
-			/* power on with vsync_switch_gpio high bacause default timing is fhd OA 60hz */
-			panel->vsync_switch_gpio_level = 1;
-			/* default resolution is FHD when use mux switch */
-			panel->cur_h_active = 1080;
 		}
 	}
 
