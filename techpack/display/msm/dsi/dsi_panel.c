@@ -1181,13 +1181,6 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 		}
 	}
 
-#ifdef CONFIG_DRM_LCM_BRIGHTNESS_NOTIFY
-	if (!strcmp(panel->oplus_priv.vendor_name, "S6E3XA1")) {
-		lcdinfo_notify(LCM_BRIGHTNESS_TYPE_SEC, &bl_lvl);
-	} else {
-		lcdinfo_notify(LCM_BRIGHTNESS_TYPE, &bl_lvl);
-	}
-#endif /* CONFIG_DRM_LCM_BRIGHTNESS_NOTIFY */
 #endif /* OPLUS_BUG_STABILITY */
 	rc = mipi_dsi_dcs_set_display_brightness(dsi, bl_lvl);
 	if (rc < 0)

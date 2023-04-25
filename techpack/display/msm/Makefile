@@ -177,9 +177,7 @@ msm_drm-$(CONFIG_MSM_SDE_ROTATOR) += ../rotator/sde_rotator_dev.o \
 	../rotator/sde_rotator_r3_debug.o
 
 oplus_notify-$(CONFIG_DRM_OPLUS_NOTIFY) += ../oplus/oplus_notify.o
-oplus_lcm_brightness_notify-$(CONFIG_DRM_LCM_BRIGHTNESS_NOTIFY) += ../oplus/oplus_lcm_brightness_notify.o
 
 obj-$(CONFIG_DISPLAY_BUILD)	+= msm_drm.o
 obj-$(CONFIG_DRM_OPLUS_NOTIFY) += oplus_notify.o
 obj-$(CONFIG_DRM_FBDEV_EMULATION) += msm_fbdev.o
-obj-$(CONFIG_DRM_LCM_BRIGHTNESS_NOTIFY) += oplus_lcm_brightness_notify.o
