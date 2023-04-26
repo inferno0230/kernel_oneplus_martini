@@ -2978,6 +2978,14 @@ typedef struct {
 	bool is_support;/*feature is supported or not*/
 } tp_proc_node;
 
+static inline ssize_t double_tap_pressed_get(struct device *device,
+                                struct device_attribute *attribute,
+                                char *buffer)
+{
+        struct touchpanel_data *ts = dev_get_drvdata(device);
+        return scnprintf(buffer, PAGE_SIZE, "%i\n", ts->double_tap_pressed);
+}
+static DEVICE_ATTR(double_tap_pressed, S_IRUGO, double_tap_pressed_get, NULL);
 
 /*proc/touchpanel/debug_info*/
 static int init_debug_info_proc(struct touchpanel_data *ts)
@@ -3167,6 +3175,11 @@ int init_touchpanel_proc(struct touchpanel_data *ts)
 	};
 
 	TP_INFO(ts->tp_index, "%s entry\n", __func__);
+
+	if (device_create_file(&ts->client->dev, &dev_attr_double_tap_pressed)) {
+		TPD_INFO("driver_create_file failt\n");
+		ret = -ENOMEM;
+	}
 
 	/*proc files-step1:/proc/devinfo/tp  (touchpanel device info)*/
 #ifndef REMOVE_OPLUS_FUNCTION
