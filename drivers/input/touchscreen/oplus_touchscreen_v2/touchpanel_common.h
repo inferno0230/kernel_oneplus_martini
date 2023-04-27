@@ -779,7 +779,6 @@ struct touchpanel_data {
 	bool double_tap_to_wake_enable;                     /*control state of dt2w*/
 	struct gesture_info    gesture;                     /*gesture related info*/
 	int gesture_enable_indep;                         /*independent control state of black gesture*/
-	int double_tap_pressed;                           /*aosp dt2w*/
 
 	/******For fingerprint area********/
 	int fp_enable;                                      /*underscreen fingerprint enable or not*/

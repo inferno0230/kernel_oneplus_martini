@@ -476,6 +476,7 @@ static void tp_gesture_handle(struct touchpanel_data *ts)
 	}
 
 	TP_INFO(ts->tp_index, "detect %s gesture\n",
+		gesture_info_temp.gesture_type == DOU_TAP ? "double tap" :
 		gesture_info_temp.gesture_type == UP_VEE ? "up vee" :
 		gesture_info_temp.gesture_type == DOWN_VEE ? "down vee" :
 		gesture_info_temp.gesture_type == LEFT_VEE ? "(>)" :
@@ -516,7 +517,10 @@ static void tp_gesture_handle(struct touchpanel_data *ts)
 		tp_memcpy(&ts->gesture, sizeof(ts->gesture), \
 			  &gesture_info_temp, sizeof(struct gesture_info), \
 			  sizeof(struct gesture_info));
-		ts->double_tap_pressed = 1;
+		input_report_key(ts->input_dev, KEY_WAKEUP, 1);
+		input_sync(ts->input_dev);
+		input_report_key(ts->input_dev, KEY_WAKEUP, 0);
+		input_sync(ts->input_dev);
 
 	} else if (gesture_info_temp.gesture_type != UNKOWN_GESTURE
 		&& gesture_info_temp.gesture_type != FINGER_PRINTDOWN
@@ -542,10 +546,7 @@ static void tp_gesture_handle(struct touchpanel_data *ts)
 		ts->fp_info.y = gesture_info_temp.Point_start.y;
 		TP_INFO(ts->tp_index, "screen off up : (%d, %d)\n", ts->fp_info.x, ts->fp_info.y);
 		touch_call_notifier_fp(&ts->fp_info);
-	} else {
-		ts->double_tap_pressed = 0;
 	}
-		sysfs_notify(&ts->client->dev.kobj, NULL, "double_tap_pressed");
 }
 
 void tp_touch_btnkey_release(unsigned int tp_index)
