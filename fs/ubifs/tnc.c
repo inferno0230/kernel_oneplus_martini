@@ -291,24 +291,19 @@ static struct ubifs_znode *dirty_cow_znode(struct ubifs_info *c,
 		return zn;
 
 	if (zbr->len) {
-		struct ubifs_old_idx *old_idx;
-
-		old_idx = kmalloc(sizeof(struct ubifs_old_idx), GFP_NOFS);
-		if (unlikely(!old_idx)) {
-			err = -ENOMEM;
-			goto out;
-		}
-		old_idx->lnum = zbr->lnum;
-		old_idx->offs = zbr->offs;
-
+		err = insert_old_idx(c, zbr->lnum, zbr->offs);
+		if (unlikely(err))
+			return ERR_PTR(err);
 		err = add_idx_dirt(c, zbr->lnum, zbr->len);
 		if (err) {
 			kfree(old_idx);
 			goto out;
 		}
 
-		do_insert_old_idx(c, old_idx);
-	}
+	zbr->znode = zn;
+	zbr->lnum = 0;
+	zbr->offs = 0;
+	zbr->len = 0;
 
 	replace_znode(c, zn, znode, zbr);
 
