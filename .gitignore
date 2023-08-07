@@ -154,3 +154,11 @@ arch/arm/boot/dts/vendor
 #Ignoring Android.bp link file
 #
 Android.bp
+
+# Ignore build scripts
+build.sh
+out/
+error.log
+AnyKernel3
+drivers/kernelsu
+KernelSU
