@@ -22,7 +22,9 @@ else
 
 obj-$(CONFIG_OPLUS_CHG)		+= v1/
 obj-$(CONFIG_OPLUS_CHG_V2)	+= v2/
-
 obj-y	+= oplus_chg_symbol.o
 
 endif
+
+obj-$(CONFIG_OPLUS_CHG_TEST_KIT) += test-kit/
+obj-$(CONFIG_OPLUS_DYNAMIC_CONFIG) += config/
