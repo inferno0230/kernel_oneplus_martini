@@ -162,3 +162,4 @@ error.log
 AnyKernel3
 drivers/kernelsu
 KernelSU
+merge.sh
