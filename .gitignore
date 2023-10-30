@@ -156,7 +156,6 @@ arch/arm/boot/dts/vendor
 Android.bp
 
 # Ignore build scripts
-build.sh
 out/
 error.log
 AnyKernel3
