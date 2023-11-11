@@ -9,14 +9,14 @@ clear='\033[0m'
 KERNEL_PATH=$PWD
 ARCH=arm64
 DEFCONFIG=vendor/lahaina-qgki_defconfig
-CLANG_PATH=$HOME/tools/clang-r498229b
+CLANG_PATH=$KERNEL_PATH/out/tools/clang-r498229b
 export PATH=$CLANG_PATH/bin:$PATH
 KernelSU=false # Enable if you want KernelSU
 BUILD_CC="LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar AS=llvm-as NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf OBJSIZE=llvm-objsize STRIP=llvm-strip"
 
 clone_tools() {
     cd $KERNEL_PATH
-    git clone https://gitlab.com/inferno0230/clang-r498229b --depth=1 ~/tools/clang-r498229b
+    git clone https://gitlab.com/inferno0230/clang-r498229b --depth=1 $KERNEL_PATH/out/tools/clang-r498229b
     git clone https://gitlab.com/inferno0230/AnyKernel3 --depth=1 $KERNEL_PATH/AnyKernel3
 }
 
@@ -50,16 +50,23 @@ Ubuntu() {
 
 build_kernel() {
     cd $KERNEL_PATH
-    rm -rf $KERNEL_PATH/out/arch/arm64/boot/*
     make O=out ARCH=arm64 $BUILD_CC $DEFCONFIG savedefconfig
+    if [[ $(echo "$(awk '/MemTotal/ {print $2}' /proc/meminfo) > 16000000" | bc -l) -eq 1 ]]; then
+        echo -e "${green}Total RAM is greater than 16GB${clear}"
+	echo -e "${green}Continuing with FULL_LTO Build${clear}"
+    else
+        echo -e "${yellow}Total RAM is less than 16GB${clear}"
+        echo "${yellow}Disabling LTO${clear}"
+	sed -i 's/CONFIG_LTO=y/CONFIG_LTO=n/' out/.config
+        sed -i 's/CONFIG_LTO_CLANG=y/CONFIG_LTO_CLANG=n/' out/.config
+        sed -i 's/CONFIG_THINLTO=y/CONFIG_THINLTO=n/' out/.config
+        echo "CONFIG_LTO_NONE=y" >> out/.config
+    fi
     # Begin compilation
     start=$(date +%s)
     make O=out  CC=clang CXX=clang++ ARCH=arm64 -j`nproc` ${BUILD_CC} 2>&1 | tee error.log
-    end=$(date +%s)
-    build_time=$((end - start))
     if [ -f $KERNEL_PATH/out/arch/arm64/boot/Image ]; then
-        echo -e "${green}Compilation successful!${clear}"
-        echo -e "${green}Kernel build time: ${build_time} seconds${clear}"
+        echo -e "${green}Kernel Compilation successful!, Zipping...${clear}"
         make_anykernel3_zip
     else
         echo -e "${red}Compilation failed!${clear}"
@@ -74,9 +81,12 @@ make_anykernel3_zip() {
     zip_name="OP9RT-v5.4.$(grep "^SUBLEVEL =" Makefile | awk '{print $3}')-$(date +"%Y%m%d").zip"
     cd $KERNEL_PATH/AnyKernel3
     cp $KERNEL_PATH/out/arch/arm64/boot/Image $KERNEL_PATH/AnyKernel3
-    zip -r ${zip_name} *
-    mv ${zip_name} $KERNEL_PATH/out/arch/arm64/boot
-    echo -e "${green}Files are in $KERNEL_PATH/out/arch/arm64/boot${clear}"
+    zip -r kernel.zip *
+    mv kernel.zip $KERNEL_PATH/out
+    ln -sf $KERNEL_PATH/out/kernel.zip $KERNEL_PATH/out/${zip_name}
+    echo -e "${green}out: ${KERNEL_PATH}/out/${zip_name}${clear}"
+    echo -e "${clear}"
+    echo -e "${green}Completed in $(($(date +%s) - start)) seconds.${clear}"
     cd $KERNEL_PATH
     exit
 }
@@ -97,10 +107,11 @@ else
 fi
 }
 
+start=$(date +%s)
 if [ -d $CLANG_PATH ]; then
-    echo -e "${blue}${folder} exists, Skipping !${clear}"
+    echo -e "${blue}Clang exists, Skipping !${clear}"
 else
-    echo -e "${red}${folder} is missing, Cloning...${clear}"
+    echo -e "${red}Clang is missing, Cloning...${clear}"
     echo -e "${yellow}This will take a while...${clear}"
     clone_tools
     distro_check
