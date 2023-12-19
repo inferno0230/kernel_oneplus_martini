@@ -466,7 +466,6 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 			/* we have at least (21+MINMATCHLEN)-(2+5)
 			 * bytes valid data left
 			 */
-
 			iph = ip_hdr(skb);
 			pr_debug("DCC found in master %pI4:%u %pI4:%u\n",
 				 &iph->saddr, ntohs(th->source),
