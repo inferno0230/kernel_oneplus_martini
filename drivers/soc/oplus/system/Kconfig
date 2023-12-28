@@ -20,7 +20,7 @@ config OPLUS_COMMON_SOFT
 	id.
 
 config OPLUS_DEVICE_IFNO
-  tristate "config devinfo"
+  bool "config devinfo"
   select OPLUS_ARCH_FILE
   help
 	define this config to compile devinfo.c for device register
