@@ -23,6 +23,11 @@ enum {
 
 void oplus_vooc_eint_register(struct oplus_chg_ic_dev *vooc_ic);
 void oplus_vooc_eint_unregister(struct oplus_chg_ic_dev *vooc_ic);
+int oplus_vooc_read_voocphy_bcc_max_curr(struct oplus_chg_ic_dev *vooc_ic);
+int oplus_vooc_read_voocphy_bcc_min_curr(struct oplus_chg_ic_dev *vooc_ic);
+int oplus_vooc_read_voocphy_bcc_exit_curr(struct oplus_chg_ic_dev *vooc_ic);
+int oplus_vooc_read_voocphy_bcc_fastchg_ing(struct oplus_chg_ic_dev *vooc_ic);
+int oplus_vooc_read_voocphy_bcc_temp_range(struct oplus_chg_ic_dev *vooc_ic);
 int oplus_vooc_read_ap_data(struct oplus_chg_ic_dev *vooc_ic);
 void oplus_vooc_set_data_active(struct oplus_chg_ic_dev *vooc_ic);
 void oplus_vooc_set_data_sleep(struct oplus_chg_ic_dev *vooc_ic);
@@ -42,4 +47,8 @@ int oplus_vooc_fw_check_then_recover_fix(struct oplus_chg_ic_dev *vooc_ic);
 bool oplus_vooc_asic_fw_status(struct oplus_chg_ic_dev *vooc_ic);
 int oplus_hal_vooc_init(struct oplus_chg_ic_dev *vooc_ic);
 int set_chg_auto_mode(struct oplus_chg_ic_dev *vooc_ic, bool enable);
+int oplus_vooc_get_curve_curr(struct oplus_chg_ic_dev *vooc_ic, int *curr);
+int oplus_vooc_get_real_curve_curr(struct oplus_chg_ic_dev *vooc_ic, int *curr);
+int oplus_vooc_get_retry_flag(struct oplus_chg_ic_dev *vooc_ic, bool *retry_flag);
+int oplus_vooc_set_ap_fastchg_allow(struct oplus_chg_ic_dev *vooc_ic, int allow, bool dummy);
 #endif /* __OPLUS_HAL_VOOC_H__ */

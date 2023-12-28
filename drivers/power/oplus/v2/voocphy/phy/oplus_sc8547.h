@@ -502,7 +502,6 @@
 /* Register 1Dh */
 #define SC8547_REG_1D                       0x1D
 #define SC8547_IBAT_POL_H_MASK              0x0F
-#define SC8547_IBAT_ADC_LSB                 125/100
 
 /* Register 1Eh */
 #define SC8547_REG_1E                       0x1E

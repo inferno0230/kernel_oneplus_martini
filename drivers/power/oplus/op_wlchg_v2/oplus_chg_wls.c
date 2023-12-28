@@ -2450,8 +2450,6 @@ static int oplus_wls_bcc_choose_curve(struct oplus_chg_wls *wls_dev)
 				wls_dev->wls_bcc_step.bcc_step[i].min_curr,
 				wls_dev->wls_bcc_step.bcc_step[i].exit);
 		}
-	} else {
-		return -EPERM;
 	}
 
 	return 0;
@@ -2639,6 +2637,8 @@ static int oplus_wls_bcc_get_stop_curr(struct oplus_chg_wls *wls_dev)
 			pr_err("bcc stop curr,temp is 40-44\n");
 			wls_stop_curr = dynamic_cfg->bcc_stop_curr_0_to_30[WLS_BCC_TEMP_400_TO_440];
 			break;
+		default:
+			break;
 		}
 	}
 
@@ -2665,6 +2665,8 @@ static int oplus_wls_bcc_get_stop_curr(struct oplus_chg_wls *wls_dev)
 			pr_err("bcc stop curr,temp is 40-44\n");
 			wls_stop_curr = dynamic_cfg->bcc_stop_curr_30_to_70[WLS_BCC_TEMP_400_TO_440];
 			break;
+		default:
+			break;
 		}
 	}
 
@@ -2690,6 +2692,8 @@ static int oplus_wls_bcc_get_stop_curr(struct oplus_chg_wls *wls_dev)
 		case WLS_BCC_TEMP_400_TO_440:
 			pr_err("bcc stop curr,temp is 40-44\n");
 			wls_stop_curr = dynamic_cfg->bcc_stop_curr_70_to_90[WLS_BCC_TEMP_400_TO_440];
+			break;
+		default:
 			break;
 		}
 	}
@@ -2926,7 +2930,7 @@ int oplus_chg_wls_get_max_wireless_power(struct device *dev)
 	struct oplus_chg_wls *wls_dev = oplus_chg_mod_get_drvdata(ocm);
 	struct oplus_chg_wls_status *wls_status = &wls_dev->wls_status;
 
-	if (!ocm || !wls_dev || !wls_status || !wls_status->rx_online)
+	if (!wls_dev || !wls_status || !wls_status->rx_online)
 		return 0;
 	max_wls_base_power = oplus_chg_wls_get_base_power_max(wls_status->adapter_id);
 	max_wls_r_power = oplus_chg_wls_get_r_power(wls_dev, wls_status->adapter_power);
@@ -3882,7 +3886,6 @@ static int oplus_chg_wls_init_mod(struct oplus_chg_wls *wls_dev)
 	}
 	return 0;
 
-	oplus_chg_comm_unreg_mutual_notifier(&wls_dev->wls_aes_nb);
 reg_wls_aes_mutual_notifier_err:
 	oplus_chg_unreg_changed_notifier(&wls_dev->wls_changed_nb);
 reg_wls_changed_notifier_err:
@@ -8682,17 +8685,16 @@ static ssize_t oplus_chg_wls_proc_tx_write(struct file *file,
 		return -ENODEV;
 	}
 
-	if (count > 5) {
+	if (count > sizeof(buffer) - 1)
 		return -EFAULT;
-	}
 
 	if (copy_from_user(buffer, buf, count)) {
 		pr_err("%s: error.\n", __func__);
 		return -EFAULT;
 	}
-
+	buffer[count] = '\0';
 	pr_err("buffer=%s", buffer);
-	rc = kstrtoint(buffer, 0, &val);
+	rc = kstrtoint(strstrip(buffer), 0, &val);
 	if (rc != 0)
 		return -EINVAL;
 	pr_err("val = %d", val);
@@ -8750,17 +8752,16 @@ static ssize_t oplus_chg_wls_proc_rx_write(struct file *file,
 		return -ENODEV;
 	}
 
-	if (count > 5) {
+	if (count > sizeof(buffer) - 1)
 		return -EFAULT;
-	}
 
 	if (copy_from_user(buffer, buf, count)) {
 		pr_err("%s: error.\n", __func__);
 		return -EFAULT;
 	}
-
+	buffer[count] = '\0';
 	pr_err("buffer=%s", buffer);
-	rc = kstrtoint(buffer, 0, &val);
+	rc = kstrtoint(strstrip(buffer), 0, &val);
 	if (rc != 0)
 		return -EINVAL;
 	pr_err("val = %d", val);
@@ -8804,7 +8805,7 @@ static ssize_t oplus_chg_wls_proc_user_sleep_mode_write(struct file *file,
 							const char __user *buf,
 							size_t len, loff_t *lo)
 {
-	char buffer[4] = { 0 };
+	char buffer[5] = { 0 };
 	int pmw_pulse = 0;
 	int rc = -1;
 	struct oplus_chg_wls *wls_dev = PDE_DATA(file_inode(file));
@@ -8815,7 +8816,7 @@ static ssize_t oplus_chg_wls_proc_user_sleep_mode_write(struct file *file,
 		return -ENODEV;
 	}
 
-	if (len > 4) {
+	if (len > sizeof(buffer) - 1) {
 		pr_err("len[%d] -EFAULT\n", len);
 		return -EFAULT;
 	}
@@ -8824,9 +8825,9 @@ static ssize_t oplus_chg_wls_proc_user_sleep_mode_write(struct file *file,
 		pr_err("copy from user error\n");
 		return -EFAULT;
 	}
-
+	buffer[len] = '\0';
 	pr_err("user mode: buffer=%s\n", buffer);
-	rc = kstrtoint(buffer, 0, &pmw_pulse);
+	rc = kstrtoint(strstrip(buffer), 0, &pmw_pulse);
 	if (rc != 0)
 		return -EINVAL;
 	if (pmw_pulse == WLS_FASTCHG_MODE) {
@@ -8903,7 +8904,7 @@ static ssize_t oplus_chg_wls_proc_idt_adc_test_write(struct file *file,
 						     const char __user *buf,
 						     size_t len, loff_t *lo)
 {
-	char buffer[4] = { 0 };
+	char buffer[5] = { 0 };
 	int rx_adc_cmd = 0;
 	struct oplus_chg_wls *wls_dev = PDE_DATA(file_inode(file));
 	int rc;
@@ -8913,7 +8914,7 @@ static ssize_t oplus_chg_wls_proc_idt_adc_test_write(struct file *file,
 		return -ENODEV;
 	}
 
-	if (len > 4) {
+	if (len > sizeof(buffer) - 1) {
 		pr_err("%s: len[%d] -EFAULT.\n", __func__, len);
 		return -EFAULT;
 	}
@@ -8922,8 +8923,8 @@ static ssize_t oplus_chg_wls_proc_idt_adc_test_write(struct file *file,
 		pr_err("%s:  error.\n", __func__);
 		return -EFAULT;
 	}
-
-	rc = kstrtoint(buffer, 0, &rx_adc_cmd);
+	buffer[len] = '\0';
+	rc = kstrtoint(strstrip(buffer), 0, &rx_adc_cmd);
 	if (rc != 0)
 		return -EINVAL;
 	if (rx_adc_cmd == 0) {
@@ -9146,7 +9147,7 @@ static ssize_t oplus_chg_wls_proc_ftm_mode_write(struct file *file,
 		return -ENODEV;
 	}
 
-	if (len > 4) {
+	if (len > sizeof(buffer) - 1) {
 		pr_err("len[%d] -EFAULT\n", len);
 		return -EFAULT;
 	}
@@ -9155,9 +9156,9 @@ static ssize_t oplus_chg_wls_proc_ftm_mode_write(struct file *file,
 		pr_err("copy from user error\n");
 		return -EFAULT;
 	}
-
+	buffer[len] = '\0';
 	pr_err("ftm mode: buffer=%s\n", buffer);
-	rc = kstrtoint(buffer, 0, &ftm_mode);
+	rc = kstrtoint(strstrip(buffer), 0, &ftm_mode);
 	if (rc != 0)
 		return -EINVAL;
 	if (ftm_mode == FTM_MODE_DISABLE) {
@@ -9617,6 +9618,7 @@ nor_init_err:
 rx_init_err:
 	destroy_workqueue(wls_dev->wls_wq);
 alloc_work_err:
+	oplus_chg_comm_unreg_mutual_notifier(&wls_dev->wls_aes_nb);
 	oplus_chg_unreg_changed_notifier(&wls_dev->wls_changed_nb);
 	oplus_chg_unreg_event_notifier(&wls_dev->wls_event_nb);
 	oplus_chg_unreg_mod_notifier(wls_dev->wls_ocm, &wls_dev->wls_mod_nb);
@@ -9660,6 +9662,7 @@ static int oplus_chg_wls_driver_remove(struct platform_device *pdev)
 	oplus_chg_wls_nor_remove(wls_dev);
 	oplus_chg_wls_rx_remove(wls_dev);
 	destroy_workqueue(wls_dev->wls_wq);
+	oplus_chg_comm_unreg_mutual_notifier(&wls_dev->wls_aes_nb);
 	oplus_chg_unreg_changed_notifier(&wls_dev->wls_changed_nb);
 	oplus_chg_unreg_event_notifier(&wls_dev->wls_event_nb);
 	oplus_chg_unreg_mod_notifier(wls_dev->wls_ocm, &wls_dev->wls_mod_nb);

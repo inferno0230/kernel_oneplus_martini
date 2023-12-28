@@ -30,6 +30,7 @@
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define OEM_OPCODE_READ_BUFFER    0x10000
+#define BCC_OPCODE_READ_BUFFER    0x10003
 #define OEM_READ_WAIT_TIME_MS    500
 #define MAX_OEM_PROPERTY_DATA_SIZE 128
 #define QC_TYPE_CHECK_INTERVAL 200 /* ms */
@@ -38,6 +39,8 @@
 #define MSG_OWNER_BC			32778
 #define MSG_TYPE_REQ_RESP		1
 #define MSG_TYPE_NOTIFY			2
+
+#define MSLEEP_35MS 35
 
 /* opcode for battery charger */
 #define BC_SET_NOTIFY_REQ		0x04
@@ -314,6 +317,24 @@ enum ship_mode_type {
 	SHIP_MODE_PACK_SIDE,
 };
 
+typedef enum {
+	DOUBLE_SERIES_WOUND_CELLS = 0,
+	SINGLE_CELL,
+	DOUBLE_PARALLEL_WOUND_CELLS,
+} SCC_CELL_TYPE;
+
+typedef enum {
+	TI_GAUGE = 0,
+	SW_GAUGE,
+	UNKNOWN_GAUGE_TYPE,
+} SCC_GAUGE_TYPE;
+
+#define DEVICE_BQ27541 0
+#define DEVICE_BQ27411 1
+#define DEVICE_BQ28Z610 2
+#define DEVICE_ZY0602 3
+#define DEVICE_ZY0603 4
+
 /* property ids */
 enum battery_property_id {
 	BATT_STATUS,
@@ -366,6 +387,69 @@ enum battery_property_id {
 	BATT_PROP_MAX,
 };
 
+#if defined CONFIG_OPLUS_SM8550_CHARGER
+enum usb_property_id {
+	USB_ONLINE,
+	USB_VOLT_NOW,
+	USB_VOLT_MAX,
+	USB_CURR_NOW,
+	USB_CURR_MAX,
+	USB_INPUT_CURR_LIMIT,
+	USB_TYPE,
+	USB_ADAP_TYPE,
+	USB_MOISTURE_DET_EN,
+	USB_MOISTURE_DET_STS,
+	USB_TEMP,
+	USB_REAL_TYPE,
+	USB_TYPEC_COMPLIANT,
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	USB_ADAP_SUBTYPE,/*sjc add*/
+	USB_VBUS_COLLAPSE_STATUS,
+	USB_VOOCPHY_STATUS,
+	USB_VOOCPHY_ENABLE,
+	USB_OTG_AP_ENABLE,
+	USB_OTG_SWITCH,
+	USB_POWER_SUPPLY_RELEASE_FIXED_FREQUENCE,
+	USB_TYPEC_CC_ORIENTATION,
+	USB_CID_STATUS,
+	USB_TYPEC_MODE,
+	USB_TYPEC_SINKONLY,
+	USB_OTG_VBUS_REGULATOR_ENABLE,
+	USB_VOOC_CHG_PARAM_INFO,
+	USB_VOOC_FAST_CHG_TYPE,
+	USB_DEBUG_REG,
+	USB_VOOCPHY_RESET_AGAIN,
+	USB_SUSPEND_PMIC,
+	USB_OEM_MISC_CTL,
+	USB_CCDETECT_HAPPENED,
+	USB_GET_PPS_TYPE,
+	USB_GET_PPS_STATUS,
+	USB_SET_PPS_VOLT,
+	USB_SET_PPS_CURR,
+	USB_GET_PPS_MAX_CURR,
+	USB_PPS_READ_VBAT0_VOLT,
+	USB_PPS_CHECK_BTB_TEMP,
+	USB_PPS_MOS_CTRL,
+	USB_PPS_CP_MODE_INIT,
+	USB_PPS_CHECK_AUTHENTICATE,
+	USB_PPS_GET_AUTHENTICATE,
+	USB_PPS_GET_CP_VBUS,
+	USB_PPS_GET_CP_MASTER_IBUS,
+	USB_PPS_GET_CP_SLAVE_IBUS,
+	USB_PPS_MOS_SLAVE_CTRL,
+	USB_PPS_GET_R_COOL_DOWN,
+	USB_PPS_GET_DISCONNECT_STATUS,
+	USB_PPS_VOOCPHY_ENABLE,
+	USB_IN_STATUS,
+	USB_GET_BATT_CURR,
+	USB_PPS_FORCE_SVOOC,
+	USB_PLUGIN_CNT,
+	USB_GET_PRE_IS_ABNORMAL_ADAPTER,
+	USB_GET_ABNORMAL_ADAPTER_DISCONNECT_CNT,
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
+	USB_PROP_MAX,
+};
+#else
 enum usb_property_id {
 	USB_ONLINE,
 	USB_VOLT_NOW,
@@ -427,6 +511,7 @@ enum usb_property_id {
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
 	USB_PROP_MAX,
 };
+#endif
 
 enum wireless_property_id {
 	WLS_ONLINE,
@@ -449,6 +534,10 @@ enum {
 	QTI_POWER_SUPPLY_USB_TYPE_HVDCP = 0x80,
 	QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3,
 	QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3P5,
+};
+
+enum oplus_power_supply_usb_type {
+	POWER_SUPPLY_USB_TYPE_PD_SDP = 17,
 };
 
 enum OTG_SCHEME {
@@ -636,6 +725,8 @@ struct battery_chg_dev {
 	int				curr_thermal_level;
 	int				num_thermal_levels;
 	int				charger_type;
+	int				g_icl_ma;
+	int				rerun_max;
 	atomic_t			state;
 	struct work_struct		subsys_up_work;
 	struct work_struct		usb_type_work;
@@ -672,11 +763,13 @@ struct battery_chg_dev {
 	bool 				hvdcp_detect_ok;
 	bool					hvdcp_disable;
 	struct delayed_work 	hvdcp_disable_work;
+	struct delayed_work 	pd_only_check_work;
 	bool					voocphy_err_check;
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	int vchg_trig_irq;
 	struct delayed_work vchg_trig_work;
+	struct delayed_work vbus_collapse_rerun_icl_work;
 	struct delayed_work wait_wired_charge_on;
 	struct delayed_work wait_wired_charge_off;
 	struct delayed_work mcu_en_init_work;
@@ -704,6 +797,9 @@ struct battery_chg_dev {
 	struct mutex    read_buffer_lock;
 	struct completion    oem_read_ack;
 	struct oem_read_buffer_resp_msg  read_buffer_dump;
+	struct mutex    bcc_read_buffer_lock;
+	struct completion    bcc_read_ack;
+	struct oem_read_buffer_resp_msg  bcc_read_buffer_dump;
 	int otg_scheme;
 	int otg_boost_src;
 	int otg_curr_limit_max;
@@ -747,5 +843,6 @@ struct qcom_pmic {
 int oplus_adsp_voocphy_get_fast_chg_type(void);
 int oplus_adsp_voocphy_enable(bool enable);
 int oplus_adsp_voocphy_reset_again(void);
+int oplus_adsp_batt_curve_current(void);
 #endif
 #endif /*__SM8450_CHARGER_H*/

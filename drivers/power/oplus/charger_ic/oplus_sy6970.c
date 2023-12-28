@@ -27,6 +27,7 @@
 #include <linux/power_supply.h>
 #include <linux/iio/consumer.h>
 
+#include <linux/rtc.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/regulator/machine.h>
@@ -45,6 +46,7 @@
 #include "oplus_discrete_charger.h"
 #include "oplus_sy6970_reg.h"
 #include <linux/pm_wakeup.h>
+#include "../oplus_chg_track.h"
 
 #ifdef CONFIG_OPLUS_CHARGER_MTK
 extern struct charger_consumer *charger_manager_get_by_name(
@@ -104,7 +106,7 @@ int __attribute__((weak)) qpnp_get_prop_charger_voltage_now(void)
 
 #define DEFAULT_CV 4435
 #define SY6970_HVDCP_BC12_WORK_DELAY 1500
-#define VSYSMIN_3P5_VAL 5	/* Vsysmin 3.5V */
+#define VSYSMIN_DEFAULT_VAL 0	/* 5: Vsysmin 3.5V; 2:3.2V; 0:3.0v */
 
 #define OPLUS_BC12_RETRY_TIME             round_jiffies_relative(msecs_to_jiffies(200))
 #define OPLUS_BC12_RETRY_TIME_CDP         round_jiffies_relative(msecs_to_jiffies(400))
@@ -143,6 +145,14 @@ int __attribute__((weak)) qpnp_get_prop_charger_voltage_now(void)
 static int sy6970_chg_dbg_enable = SY6970_ERR|SY6970_INFO|SY6970_DEBUG;
 module_param(sy6970_chg_dbg_enable, int, 0644);
 MODULE_PARM_DESC(sy6970_chg_dbg_enable, "debug charger sy6970");
+
+static int sy6970_debug_force_i2c_err = 0;
+module_param(sy6970_debug_force_i2c_err, int, 0644);
+MODULE_PARM_DESC(sy6970_debug_force_i2c_err, "debug sy6970 i2c track");
+
+static int sy6970_debug_force_fault_err = 0;
+module_param(sy6970_debug_force_fault_err, int, 0644);
+MODULE_PARM_DESC(sy6970_debug_force_fault_err, "debug sy6970 fault track");
 
 #ifdef chg_debug
 #undef chg_debug
@@ -316,6 +326,18 @@ struct sy6970 {
 	int before_suspend_icl;
 	int before_unsuspend_icl;
 	bool set_cv_value;
+
+	char err_reason[OPLUS_CHG_TRACK_DEVICE_ERR_NAME_LEN];
+	struct mutex track_upload_lock;
+	struct mutex track_i2c_err_lock;
+	struct mutex track_fault_err_lock;
+	bool i2c_err_uploading;
+	bool fault_err_uploading;
+	oplus_chg_track_trigger *i2c_err_load_trigger;
+	oplus_chg_track_trigger *fault_err_load_trigger;
+	struct delayed_work i2c_err_load_trigger_work;
+	struct delayed_work fault_err_load_trigger_work;
+	bool track_init_done;
 };
 
 static bool disable_PE = 0;
@@ -362,6 +384,8 @@ static int oplus_sy6970_get_vbus(void);
 static int oplus_sy6970_get_pd_type(void);
 static int oplus_sy6970_charger_suspend(void);
 void sy6970_reset_registers(struct sy6970 *bq, const char *buf, int count);
+static int sy6970_read_byte(struct sy6970 *bq, u8 reg, u8 *data);
+static void oplus_chg_track_check_fault_reg(struct sy6970 *chip);
 
 /* for ovp bug, used to set cv normal 4465 or higher 4608 */
 static int sy6970_set_chargevolt(struct sy6970 *sy, int volt);
@@ -369,6 +393,239 @@ static int sy6970_read_cv(struct sy6970 *bq);
 static int oplus_sy6970_set_cv(int cv);
 static int sy6970_adc_read_vbus_volt(struct sy6970 *sy);
 static void sy6970_cancel_cv_monitor_work(struct sy6970 *sy);
+#define TRACK_UPLOAD_COUNT_MAX 10
+#define TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD (24 * 3600)
+static int sy6970_track_get_local_time_s(void)
+{
+	struct timespec ts;
+
+	getnstimeofday(&ts);
+
+	return ts.tv_sec;
+}
+
+static int sy6970_track_upload_i2c_err_info(struct sy6970 *chip, int err_type, u8 reg)
+{
+	int index = 0;
+	int curr_time;
+	static int upload_count = 0;
+	static int pre_upload_time = 0;
+
+	if (!chip || !chip->track_init_done)
+		return -EINVAL;
+
+	mutex_lock(&chip->track_upload_lock);
+	memset(chip->err_reason, 0, sizeof(chip->err_reason));
+	curr_time = sy6970_track_get_local_time_s();
+	if (curr_time - pre_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
+		upload_count = 0;
+
+	if (upload_count > TRACK_UPLOAD_COUNT_MAX) {
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	if (sy6970_debug_force_i2c_err)
+		err_type = -sy6970_debug_force_i2c_err;
+
+	mutex_lock(&chip->track_i2c_err_lock);
+	if (chip->i2c_err_uploading) {
+		pr_info("i2c_err_uploading, should return\n");
+		mutex_unlock(&chip->track_i2c_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	if (chip->i2c_err_load_trigger)
+		kfree(chip->i2c_err_load_trigger);
+	chip->i2c_err_load_trigger = kzalloc(sizeof(oplus_chg_track_trigger), GFP_KERNEL);
+	if (!chip->i2c_err_load_trigger) {
+		pr_err("i2c_err_load_trigger memery alloc fail\n");
+		mutex_unlock(&chip->track_i2c_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return -ENOMEM;
+	}
+	chip->i2c_err_load_trigger->type_reason = TRACK_NOTIFY_TYPE_DEVICE_ABNORMAL;
+	chip->i2c_err_load_trigger->flag_reason = TRACK_NOTIFY_FLAG_EXTERN_PMIC_ABNORMAL;
+	chip->i2c_err_uploading = true;
+	upload_count++;
+	pre_upload_time = sy6970_track_get_local_time_s();
+	mutex_unlock(&chip->track_i2c_err_lock);
+
+	index += snprintf(&(chip->i2c_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$device_id@@%s", chip->is_sy6970 ? "sy6970" : "bq25890h");
+	index += snprintf(&(chip->i2c_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$err_scene@@%s", OPLUS_CHG_TRACK_SCENE_I2C_ERR);
+
+	oplus_chg_track_get_i2c_err_reason(err_type, chip->err_reason, sizeof(chip->err_reason));
+	index += snprintf(&(chip->i2c_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$err_reason@@%s", chip->err_reason);
+
+	index += snprintf(&(chip->i2c_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$access_reg@@0x%02x", reg);
+	schedule_delayed_work(&chip->i2c_err_load_trigger_work, 0);
+	mutex_unlock(&chip->track_upload_lock);
+	pr_info("success\n");
+
+	return 0;
+}
+
+static void sy6970_track_i2c_err_load_trigger_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct sy6970 *chip = container_of(dwork, struct sy6970, i2c_err_load_trigger_work);
+
+	if (!chip)
+		return;
+
+	oplus_chg_track_upload_trigger_data(*(chip->i2c_err_load_trigger));
+	if (chip->i2c_err_load_trigger) {
+		kfree(chip->i2c_err_load_trigger);
+		chip->i2c_err_load_trigger = NULL;
+	}
+	chip->i2c_err_uploading = false;
+}
+
+static int sy6970_track_upload_fault_err_info(struct sy6970 *chip, int err_type, u8 reg)
+{
+	int index = 0;
+	int curr_time;
+	static int upload_count = 0;
+	static int pre_upload_time = 0;
+
+	if (!chip || !chip->track_init_done)
+		return -EINVAL;
+
+	mutex_lock(&chip->track_upload_lock);
+	memset(chip->err_reason, 0, sizeof(chip->err_reason));
+	curr_time = sy6970_track_get_local_time_s();
+	if (curr_time - pre_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
+		upload_count = 0;
+
+	if (upload_count > TRACK_UPLOAD_COUNT_MAX) {
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	mutex_lock(&chip->track_fault_err_lock);
+	if (chip->fault_err_uploading) {
+		pr_info("fault_err_uploading, should return\n");
+		mutex_unlock(&chip->track_fault_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	if (chip->fault_err_load_trigger)
+		kfree(chip->fault_err_load_trigger);
+	chip->fault_err_load_trigger = kzalloc(sizeof(oplus_chg_track_trigger), GFP_KERNEL);
+	if (!chip->fault_err_load_trigger) {
+		pr_err("fault_err_load_trigger memery alloc fail\n");
+		mutex_unlock(&chip->track_fault_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return -ENOMEM;
+	}
+	chip->fault_err_load_trigger->type_reason = TRACK_NOTIFY_TYPE_DEVICE_ABNORMAL;
+	chip->fault_err_load_trigger->flag_reason = TRACK_NOTIFY_FLAG_EXTERN_PMIC_ABNORMAL;
+	chip->fault_err_uploading = true;
+	upload_count++;
+	pre_upload_time = sy6970_track_get_local_time_s();
+	mutex_unlock(&chip->track_fault_err_lock);
+
+	index += snprintf(&(chip->fault_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$device_id@@%s", chip->is_sy6970 ? "sy6970" : "bq25890h");
+	index += snprintf(&(chip->fault_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$err_scene@@%s", OPLUS_CHG_TRACK_SCENE_BUCK_ERR);
+
+	oplus_chg_track_get_buck_err_reason(err_type, chip->err_reason, sizeof(chip->err_reason));
+	index += snprintf(&(chip->fault_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$err_reason@@%s", chip->err_reason);
+
+	index += snprintf(&(chip->fault_err_load_trigger->crux_info[index]), OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			  "$$reg_info@@0x0c=0x%02x", reg);
+	schedule_delayed_work(&chip->fault_err_load_trigger_work, 0);
+	mutex_unlock(&chip->track_upload_lock);
+	pr_info("success\n");
+
+	return 0;
+}
+
+static void sy6970_track_fault_err_load_trigger_work(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct sy6970 *chip = container_of(dwork, struct sy6970, fault_err_load_trigger_work);
+
+	if (!chip)
+		return;
+
+	oplus_chg_track_upload_trigger_data(*(chip->fault_err_load_trigger));
+	if (chip->fault_err_load_trigger) {
+		kfree(chip->fault_err_load_trigger);
+		chip->fault_err_load_trigger = NULL;
+	}
+	chip->fault_err_uploading = false;
+}
+
+static void oplus_chg_track_check_fault_reg(struct sy6970 *chip)
+{
+	u8 val = 0;
+	int ret = 0, err_type = TRACK_BUCK_ERR_DEFAULT;
+
+	if (!chip)
+		return;
+
+	ret = sy6970_read_byte(chip, SY6970_REG_0C, &val);
+	if (ret) {
+		chg_err("read 0x0c reg failed %d\n", ret)
+		return;
+	}
+
+	if (val) {
+		chg_info("reg0c=0x%02x\n", val);
+	}
+
+	if (sy6970_debug_force_fault_err)
+		val = sy6970_debug_force_fault_err;
+
+	if (val & SY6970_FAULT_BAT_MASK)
+		err_type = TRACK_BUCK_ERR_BATOVP;
+	else if (val & SY6970_FAULT_BOOST_MASK)
+		err_type = TRACK_BUCK_ERR_BOOST_FAULT;
+	else if ((val & SY6970_FAULT_CHRG_MASK) == (SY6970_FAULT_CHRG_THERMAL << SY6970_FAULT_CHRG_SHIFT))
+		err_type = TRACK_BUCK_ERR_THERMAL_SHUTDOWN;
+	else if ((val & SY6970_FAULT_CHRG_MASK) == (SY6970_FAULT_CHRG_TIMER << SY6970_FAULT_CHRG_SHIFT))
+		err_type = TRACK_BUCK_ERR_SAFETY_TIMEOUT;
+	else if (val & SY6970_FAULT_WDT_MASK)
+		err_type = TRACK_BUCK_ERR_WATCHDOG_FAULT;
+	else if ((val & SY6970_FAULT_CHRG_MASK) == (SY6970_FAULT_CHRG_INPUT << SY6970_FAULT_CHRG_SHIFT))
+		err_type = TRACK_BUCK_ERR_INPUT_FAULT;
+
+	if (err_type != TRACK_BUCK_ERR_DEFAULT)
+		sy6970_track_upload_fault_err_info(chip, err_type, val);
+}
+
+static int sy6970_track_init(struct sy6970 *chip)
+{
+	int ret = 0;
+
+	if (!chip) {
+		ret = -ENOENT;
+		return ret;
+	}
+
+	mutex_init(&chip->track_upload_lock);
+	mutex_init(&chip->track_i2c_err_lock);
+	mutex_init(&chip->track_fault_err_lock);
+	chip->i2c_err_uploading = false;
+	chip->fault_err_uploading = false;
+	chip->i2c_err_load_trigger = NULL;
+	chip->fault_err_load_trigger = NULL;
+
+	INIT_DELAYED_WORK(&chip->i2c_err_load_trigger_work, sy6970_track_i2c_err_load_trigger_work);
+	INIT_DELAYED_WORK(&chip->fault_err_load_trigger_work, sy6970_track_fault_err_load_trigger_work);
+
+	chip->track_init_done = true;
+	return ret;
+}
 
 #ifdef CONFIG_OPLUS_CHARGER_MTK
 static const struct charger_properties sy6970_chg_props = {
@@ -419,8 +676,9 @@ static int g_sy6970_read_reg(struct sy6970 *bq, u8 reg, u8 *data)
 		}
 	}
 
-	if (ret < 0) {
+	if (ret < 0 || sy6970_debug_force_i2c_err) {
 		pr_err("i2c read fail: can't read from reg 0x%02X\n", reg);
+		sy6970_track_upload_i2c_err_info(bq, ret, reg);
 		return ret;
 	}
 
@@ -448,9 +706,10 @@ static int g_sy6970_write_reg(struct sy6970 *bq, int reg, u8 val)
 		}
 	}
 
-	if (ret < 0) {
+	if (ret < 0 || sy6970_debug_force_i2c_err) {
 		pr_err("i2c write fail: can't write 0x%02X to reg 0x%02X: %d\n",
 		       val, reg, ret);
+		sy6970_track_upload_i2c_err_info(bq, ret, reg);
 		return ret;
 	}
 	return 0;
@@ -1117,8 +1376,9 @@ int sy6970_set_boost_current(struct sy6970 *bq, int curr)
 
 static int sy6970_vmin_limit(struct sy6970 *bq)
 {
-        u8 val = VSYSMIN_3P5_VAL << SY6970_SYS_MINV_SHIFT;
+        u8 val = VSYSMIN_DEFAULT_VAL << SY6970_SYS_MINV_SHIFT;
 
+        chg_info("vsysmin val = %d", val);
         return sy6970_update_bits(bq, SY6970_REG_03,
                                    SY6970_SYS_MINV_MASK, val);
 }
@@ -1608,6 +1868,7 @@ static irqreturn_t sy6970_irq_handler(int irq, void *data)
 	oplus_sy6970_set_mivr_by_battery_vol();
 	oplus_chg_track_check_wired_charging_break(bq->power_good);
 	oplus_chg_check_break(bq->power_good);
+	oplus_chg_track_check_fault_reg(bq);
 
 	if (oplus_vooc_get_fastchg_started() == true && oplus_vooc_get_adapter_update_status() != 1) {
 		chg_err("oplus_vooc_get_fastchg_started = true!(%d %d)\n", prev_pg, bq->power_good);
@@ -2876,8 +3137,8 @@ static int oplus_sy6970_set_aicr(int current_ma)
 		goto aicl_end;
 
 aicl_pre_step:
-	if ((chip->is_double_charger_support)
-		&& (chip->slave_charger_enable || chip->em_mode)) {
+	if ((chip->is_double_charger_support) &&
+	    (chip->slave_charger_enable || chip->em_mode)) {
 		slave_cur = (usb_icl[i] * g_oplus_chip->slave_pct)/100;
 		slave_cur -= slave_cur % 100;
 		main_cur = usb_icl[i] - slave_cur;
@@ -2896,14 +3157,6 @@ aicl_pre_step:
                         chip->slave_charger_enable = true;
 			oplus_sy6970_set_ichg(EM_MODE_ICHG_MA);
                 }
-	}else{
-		if (atomic_read(&g_bq->charger_suspended) == 1) {
-			g_bq->before_suspend_icl = usb_icl[i];
-			chg_err("during aicl, force input current to 100mA,before=%dmA\n", g_bq->before_suspend_icl);
-			sy6970_set_input_current_limit(g_bq, 100);
-		} else {
-			sy6970_set_input_current_limit(g_bq, usb_icl[i]);
-		}
 	}
 
 	chg_info("aicl_pre_step: current limit aicl chg_vol=%d j[%d]=%d sw_aicl_point:%d, main %d mA, slave %d mA, slave_charger_enable:%d\n",
@@ -2912,8 +3165,8 @@ aicl_pre_step:
 		chip->slave_charger_enable);
 	return rc;
 aicl_end:
-	if ((g_oplus_chip->is_double_charger_support)
-		&& (chip->slave_charger_enable || chip->em_mode)) {
+	if ((g_oplus_chip->is_double_charger_support) &&
+	    (chip->slave_charger_enable || chip->em_mode)) {
 		slave_cur = (usb_icl[i] * g_oplus_chip->slave_pct)/FULL_PCT;
 		slave_cur -= slave_cur % 100;
 		main_cur = usb_icl[i] - slave_cur;
@@ -2931,8 +3184,10 @@ aicl_end:
 			chip->slave_charger_enable = true;
 			oplus_sy6970_set_ichg(EM_MODE_ICHG_MA);
 		}
-	}else{
-		if (atomic_read(&g_bq->charger_suspended) == 1) {
+	}
+
+	if (!chip->is_double_charger_support) {
+		if (atomic_read(&g_bq->charger_suspended) == 1 || chip->stop_chg == 0) {
 			g_bq->before_suspend_icl = usb_icl[i];
 			chg_err("during aicl, force input current to 100mA,before=%dmA\n", g_bq->before_suspend_icl);
 			sy6970_set_input_current_limit(g_bq, 100);
@@ -3102,7 +3357,7 @@ int oplus_sy6970_is_charging_done(void)
 
 }
 
-void oplus_set_prswap(bool swap)
+static void oplus_set_prswap(bool swap)
 {
 	chg_debug("%s set prswap %d\n", __func__, swap);
 
@@ -4063,6 +4318,7 @@ struct oplus_chg_operations  oplus_chg_sy6970_ops = {
 	.force_pd_to_dcp = sy6970_force_pd_to_dcp,
 	.really_suspend_charger = sy6970_really_suspend_charger,
 	.pdo_5v = oplus_sy6970_set_pdo_5v,
+	.set_prswap = oplus_set_prswap,
 };
 
 static void retry_detection_work_callback(struct work_struct *work)
@@ -4259,8 +4515,13 @@ static int sy6970_charger_probe(struct i2c_client *client,
 	}
 	register_charger_devinfo(bq);
 
-	/* Reset SY6970 register except REG06 to avoid BATOVP condition */
-	sy6970_reset_registers(bq, g_sy6970_regdata_on_reset, SY6970_REG_14);
+	if (!bq->is_bq25890h) {
+		/* Reset SY6970 register except REG06 to avoid BATOVP condition */
+		sy6970_reset_registers(bq, g_sy6970_regdata_on_reset, SY6970_REG_14);
+	} else {
+		sy6970_reset_chip(bq);
+	}
+
 
 	ret = sy6970_init_device(bq);
 	if (ret) {
@@ -4363,7 +4624,7 @@ static int sy6970_charger_probe(struct i2c_client *client,
 		set_charger_ic(BQ2589X);
 	}
 
-
+	sy6970_track_init(bq);
 	sy6970_irq_handler(0, bq);
 
 	chg_err("sy6970 probe success, Part Num:%d, Revision:%d\n",
@@ -4389,11 +4650,50 @@ err_nodev:
 
 }
 
+static unsigned long suspend_tm_sec = 0;
+#define INVALID_TIME_VAL -1
+#define SLEEP_DURATION_THR 60
+static int get_rtc_time(unsigned long *rtc_time)
+{
+	struct rtc_time tm;
+	struct rtc_device *rtc;
+	int rc;
+
+	rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
+	if (rtc == NULL) {
+		pr_err("Failed to open rtc device (%s)\n",
+				CONFIG_RTC_HCTOSYS_DEVICE);
+		return -EINVAL;
+	}
+
+	rc = rtc_read_time(rtc, &tm);
+	if (rc) {
+		pr_err("Failed to read rtc time (%s) : %d\n",
+				CONFIG_RTC_HCTOSYS_DEVICE, rc);
+		goto close_time;
+	}
+
+	rc = rtc_valid_tm(&tm);
+	if (rc) {
+		pr_err("Invalid RTC time (%s): %d\n",
+				CONFIG_RTC_HCTOSYS_DEVICE, rc);
+		goto close_time;
+	}
+	rtc_tm_to_time(&tm, rtc_time);
+
+	close_time:
+		rtc_class_close(rtc);
+		return rc;
+}
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0))
 static int sy6970_pm_resume(struct device *dev)
 {
 	struct sy6970 *chip = NULL;
 	struct i2c_client *client = to_i2c_client(dev);
+	unsigned long resume_tm_sec = 0;
+	unsigned long sleep_time = 0;
+	int rc = 0;
 
 	chg_err(" suspend stop \n");
 	if (client) {
@@ -4402,6 +4702,16 @@ static int sy6970_pm_resume(struct device *dev)
 			chg_err(" set charger_suspended as 0\n");
 			atomic_set(&chip->charger_suspended, 0);
 			wake_up_interruptible(&g_bq->wait);
+
+			rc = get_rtc_time(&resume_tm_sec);
+			if (rc || suspend_tm_sec == INVALID_TIME_VAL) {
+				chg_err("RTC read failed\n");
+				sleep_time = 0;
+			} else {
+				sleep_time = resume_tm_sec - suspend_tm_sec;
+			}
+			if ((resume_tm_sec > suspend_tm_sec) && (sleep_time > SLEEP_DURATION_THR))
+				oplus_chg_soc_update_when_resume(sleep_time);
 		}
 	}
 	return 0;
@@ -4418,6 +4728,10 @@ static int sy6970_pm_suspend(struct device *dev)
 		if (chip) {
 			chg_err(" set charger_suspended as 1\n");
 			atomic_set(&chip->charger_suspended, 1);
+			if (get_rtc_time(&suspend_tm_sec)) {
+				chg_err("RTC read failed\n");
+				suspend_tm_sec = INVALID_TIME_VAL;
+			}
 		}
 	}
 	return 0;
@@ -4430,28 +4744,42 @@ static const struct dev_pm_ops sy6970_pm_ops = {
 #else
 static int sy6970_resume(struct i2c_client *client)
 {
-       	struct sy6970 *chip = i2c_get_clientdata(client);
+	struct sy6970 *chip = i2c_get_clientdata(client);
+	unsigned long resume_tm_sec = 0;
+	unsigned long sleep_time = 0;
+	int rc = 0;
 
-        if (!chip) {
-                return 0;
-        }
+	if (!chip)
+		return 0;
 
-        atomic_set(&chip->charger_suspended, 0);
+	atomic_set(&chip->charger_suspended, 0);
+	rc = get_rtc_time(&resume_tm_sec);
+	if (rc || suspend_tm_sec == INVALID_TIME_VAL) {
+		chg_err("RTC read failed\n");
+		sleep_time = 0;
+	} else {
+		sleep_time = resume_tm_sec - suspend_tm_sec;
+	}
+	if ((resume_tm_sec > suspend_tm_sec) && (sleep_time > SLEEP_DURATION_THR))
+		oplus_chg_soc_update_when_resume(sleep_time);
 
-        return 0;
+	return 0;
 }
 
 static int sy6970_suspend(struct i2c_client *client, pm_message_t mesg)
 {
-        struct sy6970 *chip = i2c_get_clientdata(client);
+	struct sy6970 *chip = i2c_get_clientdata(client);
 
-        if (!chip) {
-                return 0;
-        }
+	if (!chip)
+		return 0;
 
-        atomic_set(&chip->charger_suspended, 1);
+	atomic_set(&chip->charger_suspended, 1);
+	if (get_rtc_time(&suspend_tm_sec)) {
+		chg_err("RTC read failed\n");
+		suspend_tm_sec = INVALID_TIME_VAL;
+	}
 
-        return 0;
+	return 0;
 }
 #endif
 

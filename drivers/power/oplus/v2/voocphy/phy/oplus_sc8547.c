@@ -16,6 +16,8 @@
 #include <linux/rtc.h>
 #include <linux/device.h>
 #include <linux/of_platform.h>
+#include <linux/of_gpio.h>
+#include <linux/interrupt.h>
 
 #include <oplus_chg_ic.h>
 #include <oplus_chg_module.h>
@@ -573,7 +575,7 @@ static int sc8547_reset_voocphy(struct oplus_voocphy_manager *chip)
 	/* hwic config with plugout */
 	reg_data = 0x20 | (chip->ovp_reg & 0x1f);
 	sc8547_write_byte(chip->client, SC8547_REG_00, reg_data);
-	sc8547_write_byte(chip->client, SC8547_REG_02, 0x07);
+	sc8547_write_byte(chip->client, SC8547_REG_02, 0x01);
 	sc8547_write_byte(chip->client, SC8547_REG_04, 0x50);
 
 	reg_data = 0x20 | (chip->ocp_reg & 0xf);
@@ -599,7 +601,7 @@ static int sc8547_reset_voocphy(struct oplus_voocphy_manager *chip)
 	sc8547_write_word(chip->client, SC8547_REG_31, 0x0);
 
 	/* mask insert irq */
-	sc8547_write_word(chip->client, SC8547_REG_10, 0x02);
+	sc8547_write_byte(chip->client, SC8547_REG_10, 0x02);
 	pr_info ("oplus_vooc_reset_voocphy done");
 
 	return VOOCPHY_SUCCESS;
@@ -640,7 +642,7 @@ static int sc8547_init_device(struct oplus_voocphy_manager *chip)
 {
 	unsigned char reg_data;
 	sc8547_write_byte(chip->client, SC8547_REG_11, 0x0);	/* ADC_CTRL:disable */
-	sc8547_write_byte(chip->client, SC8547_REG_02, 0x7);
+	sc8547_write_byte(chip->client, SC8547_REG_02, 0x01);
 	sc8547_write_byte(chip->client, SC8547_REG_04, 0x50);	/* VBUS_OVP:10 2:1 or 1:1V */
 	reg_data = 0x20 | (chip->ovp_reg & 0x1f);
 	sc8547_write_byte(chip->client, SC8547_REG_00, reg_data);	/* VBAT_OVP:4.65V */
@@ -715,7 +717,7 @@ static int sc8547_svooc_hw_setting(struct oplus_voocphy_manager *chip)
 static int sc8547_vooc_hw_setting(struct oplus_voocphy_manager *chip)
 {
 	//sc8547_write_byte(sc, SC8547_REG_00, 0x2E);
-	sc8547_write_byte(chip->client, SC8547_REG_02, 0x07);	//VAC_OVP:
+	sc8547_write_byte(chip->client, SC8547_REG_02, 0x01);	//VAC_OVP:
 	sc8547_write_byte(chip->client, SC8547_REG_04, 0x50);	//VBUS_OVP:
 	sc8547_write_byte(chip->client, SC8547_REG_05, 0x2c);	//IBUS_OCP_UCP:
 	sc8547_write_byte(chip->client, SC8547_REG_09, 0x93);	/*WD:1000ms*/
@@ -730,7 +732,7 @@ static int sc8547_vooc_hw_setting(struct oplus_voocphy_manager *chip)
 static int sc8547_5v2a_hw_setting(struct oplus_voocphy_manager *chip)
 {
 	//sc8547_write_byte(sc, SC8547_REG_00, 0x2E);
-	sc8547_write_byte(chip->client, SC8547_REG_02, 0x07);	//VAC_OVP:
+	sc8547_write_byte(chip->client, SC8547_REG_02, 0x01);	//VAC_OVP:
 	sc8547_write_byte(chip->client, SC8547_REG_04, 0x50);	//VBUS_OVP:
 	//sc8547_write_byte(__sc, SC8547_REG_05, 0x2c);	//IBUS_OCP_UCP:
 	sc8547_write_byte(chip->client, SC8547_REG_07, 0x04);
@@ -924,6 +926,109 @@ static int sc8547_charger_choose(struct oplus_voocphy_manager *chip)
 	}
 }
 
+static irqreturn_t sc8547_interrupt_handler(int irq, void *dev_id)
+{
+	struct oplus_voocphy_manager *voocphy = dev_id;
+
+	return oplus_voocphy_interrupt_handler(voocphy);
+}
+
+static int sc8547_irq_gpio_init(struct oplus_voocphy_manager *chip)
+{
+	int rc;
+	struct device_node *node = chip->dev->of_node;
+
+	chip->irq_gpio = of_get_named_gpio(node, "oplus,irq_gpio", 0);
+	if (!gpio_is_valid(chip->irq_gpio)) {
+		chip->irq_gpio = of_get_named_gpio(node, "oplus_spec,irq_gpio", 0);
+		if (!gpio_is_valid(chip->irq_gpio)) {
+			chg_err("irq_gpio not specified, rc=%d\n", chip->irq_gpio);
+			return chip->irq_gpio;
+		}
+	}
+	rc = gpio_request(chip->irq_gpio, "irq_gpio");
+	if (rc) {
+		chg_err("unable to request gpio[%d]\n", chip->irq_gpio);
+		return rc;
+	}
+	chg_info("irq_gpio = %d\n", chip->irq_gpio);
+
+	chip->irq = gpio_to_irq(chip->irq_gpio);
+	chip->pinctrl = devm_pinctrl_get(chip->dev);
+	if (IS_ERR_OR_NULL(chip->pinctrl)) {
+		chg_err("get pinctrl fail\n");
+		return -EINVAL;
+	}
+
+	chip->charging_inter_active =
+	    pinctrl_lookup_state(chip->pinctrl, "charging_inter_active");
+	if (IS_ERR_OR_NULL(chip->charging_inter_active)) {
+		chg_err("failed to get the pinctrl state(%d)\n", __LINE__);
+		return -EINVAL;
+	}
+
+	chip->charging_inter_sleep =
+	    pinctrl_lookup_state(chip->pinctrl, "charging_inter_sleep");
+	if (IS_ERR_OR_NULL(chip->charging_inter_sleep)) {
+		chg_err("Failed to get the pinctrl state(%d)\n", __LINE__);
+		return -EINVAL;
+	}
+
+	gpio_direction_input(chip->irq_gpio);
+	pinctrl_select_state(chip->pinctrl, chip->charging_inter_active); /* no_PULL */
+	rc = gpio_get_value(chip->irq_gpio);
+	chg_info("irq_gpio = %d, irq_gpio_stat = %d\n", chip->irq_gpio, rc);
+
+	return 0;
+}
+
+static int sc8547_irq_register(struct oplus_voocphy_manager *voocphy)
+{
+	struct irq_desc *desc;
+	struct cpumask current_mask;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+	cpumask_var_t cpu_highcap_mask;
+#endif
+	int ret;
+
+	ret = sc8547_irq_gpio_init(voocphy);
+	if (ret < 0) {
+		chg_err("failed to irq gpio init(%d)\n", ret);
+		return ret;
+	}
+
+	if (voocphy->irq) {
+		ret = request_threaded_irq(voocphy->irq, NULL,
+					   sc8547_interrupt_handler,
+					   IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+					   "voocphy_irq", voocphy);
+		if (ret < 0) {
+			chg_err("request irq for irq=%d failed, ret =%d\n",
+				voocphy->irq, ret);
+			return ret;
+		}
+		enable_irq_wake(voocphy->irq);
+		chg_debug("request irq ok\n");
+	}
+
+	desc = irq_to_desc(voocphy->irq);
+	if (desc == NULL) {
+		free_irq(voocphy->irq, voocphy);
+		chg_err("desc null\n");
+		return ret;
+	}
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
+	update_highcap_mask(cpu_highcap_mask);
+	cpumask_and(&current_mask, cpu_online_mask, cpu_highcap_mask);
+#else
+	cpumask_setall(&current_mask);
+	cpumask_and(&current_mask, cpu_online_mask, &current_mask);
+#endif
+	ret = set_cpus_allowed_ptr(desc->action->thread, &current_mask);
+
+	return 0;
+}
+
 static int sc8547_charger_probe(struct i2c_client *client,
                                 const struct i2c_device_id *id)
 {
@@ -953,6 +1058,12 @@ static int sc8547_charger_probe(struct i2c_client *client,
 	ret = oplus_register_voocphy(chip);
 	if (ret < 0) {
 		chg_err("failed to register voocphy, ret = %d", ret);
+		return ret;
+	}
+
+	ret = sc8547_irq_register(chip);
+	if (ret < 0) {
+		chg_err("irq register error, rc=%d\n", ret);
 		return ret;
 	}
 	chg_info("sc8547_charger_probe successfully!\n");
@@ -1011,4 +1122,3 @@ oplus_chg_module_register(sc8547_subsys);
 
 MODULE_DESCRIPTION("SC SC8547 Charge Pump Driver");
 MODULE_LICENSE("GPL v2");
-MODULE_AUTHOR("lukaili");

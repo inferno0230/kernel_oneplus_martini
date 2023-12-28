@@ -5036,7 +5036,7 @@ int oplus_get_wrx_en_val(void)
 	struct oplus_p922x_ic *chip = p922x_chip;
 
 	if (!chip) {
-		chg_err("oplus_wpc_chip not ready!\n", __func__);
+		chg_err("oplus_wpc_chip not ready!\n");
 		return 0;
 	}
 	if (chip->wrx_en_gpio <= 0) {
@@ -5126,7 +5126,7 @@ int oplus_get_wrx_otg_en_val(void)
 	struct oplus_p922x_ic *chip = p922x_chip;
 
 	if (!chip) {
-		chg_err("oplus_wpc_chip not ready!\n", __func__);
+		chg_err("oplus_wpc_chip not ready!\n");
 		return 0;
 	}
 	if (chip->wrx_otg_en_gpio <= 0) {
@@ -5864,7 +5864,7 @@ static ssize_t proc_wireless_ftm_mode_write(struct file *file, const char __user
 {
 	char buffer[2] = {0};
 
-	chg_err("%s: len[%d] start.\n", __func__, len);
+	chg_err("%s: len[%zu] start.\n", __func__, len);
 	if (len > 2) {
 		return -EFAULT;
 	}
@@ -6164,7 +6164,7 @@ static ssize_t proc_wireless_charge_pump_write(struct file *file,
 	char buffer[2] = { 0 };
 	int val = 0;
 
-	chg_err("%s: len[%d] start.\n", __func__, count);
+	chg_err("%s: len[%zu] start.\n", __func__, count);
 	if (count > 2) {
 		return -EFAULT;
 	}
@@ -6548,7 +6548,7 @@ static ssize_t proc_wireless_rx_freq_write(struct file *file,
 
 	memset(string, 0, 16);
 	copy_from_user(string, buf, count);
-	chg_err("buf = %s, len = %d\n", string, count);
+	chg_err("buf = %s, len = %zu\n", string, count);
 	kstrtoint(string, 0, &freq);
 	chg_err("set freq threshold to %d\n", freq);
 	chip->p922x_chg_status.freq_threshold = freq;
@@ -6682,7 +6682,7 @@ static ssize_t proc_wireless_user_sleep_mode_write(struct file *file, const char
 	}
 
 	if (len > 4) {
-		chg_err("len[%d] -EFAULT\n", len);
+		chg_err("len[%zu] -EFAULT\n", len);
 		return -EFAULT;
 	}
 
@@ -6786,7 +6786,7 @@ static ssize_t proc_wireless_idt_adc_test_write(struct file *file, const char __
 	}
 
 	if (len > 4) {
-		chg_err("%s: len[%d] -EFAULT.\n", __func__, len);
+		chg_err("%s: len[%zu] -EFAULT.\n", __func__, len);
 		return -EFAULT;
 	}
 

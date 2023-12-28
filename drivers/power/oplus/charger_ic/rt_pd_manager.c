@@ -41,6 +41,11 @@
 #define USB_TYPE_POLLING_CNT_MAX	200
 #define UNIT_TRANS_1000			1000
 
+#define PORT_ERROR 0
+#define PORT_A 1
+#define PORT_PD_WITH_USB 2
+#define PORT_PD_WITHOUT_USB 3
+
 extern void oplus_otg_enable_by_buckboost(void);
 extern void oplus_otg_disable_by_buckboost(void);
 extern void tcpc_late_sync(void);
@@ -305,6 +310,27 @@ bool oplus_pd_without_usb(void)
 	return (tcpm_inquire_dpm_flags(g_rpmd->tcpc) & DPM_FLAGS_PARTNER_USB_COMM) ? false : true;
 }
 
+int oplus_check_pd_usb_type(void)
+{
+	struct tcpc_device *tcpc;
+	int ret = 0;
+
+	tcpc = tcpc_dev_get_by_name("type_c_port0");
+	if (!tcpc) {
+		chg_err("get type_c_port0 fail\n");
+		return PORT_ERROR;
+	}
+
+	if (!tcpm_inquire_pd_connected(tcpc))
+		return PORT_A;
+
+	ret = tcpm_inquire_dpm_flags(tcpc);
+	if (ret & DPM_FLAGS_PARTNER_USB_COMM)
+		return PORT_PD_WITH_USB;
+
+	return PORT_PD_WITHOUT_USB;
+}
+
 bool oplus_pd_connected(void)
 {
 	if (!g_rpmd)
@@ -422,6 +448,7 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 	enum typec_pwr_opmode opmode = TYPEC_PWR_MODE_USB;
 	uint32_t partner_vdos[VDO_MAX_NR];
 	union power_supply_propval val = {.intval = 0};
+	static bool otg_enable = false;
 	struct oplus_chg_chip *g_oplus_chip = oplus_chg_get_chg_struct();
 
 	switch (event) {
@@ -454,8 +481,11 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		/* enable/disable OTG power output */
 		if (noti->vbus_state.mv) {
 			oplus_otg_enable_by_buckboost();
+			otg_enable = true;
 		} else {
-			oplus_otg_disable_by_buckboost();
+			if (otg_enable)
+				oplus_otg_disable_by_buckboost();
+			otg_enable = false;
 		}
 		break;
 	case TCP_NOTIFY_TYPEC_STATE:
@@ -641,7 +671,10 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 		if (noti->swap_state.new_role == PD_ROLE_SINK) {
 			dev_info(rpmd->dev, "%s swap power role to sink\n",
 					    __func__);
-			oplus_set_prswap(true);
+			if (g_oplus_chip && g_oplus_chip->chg_ops &&
+			    g_oplus_chip->chg_ops->set_prswap)
+				g_oplus_chip->chg_ops->set_prswap(true);
+			/*oplus_set_prswap(true);*/
 			/*
 			 * report charger plug-in without charger type detection
 			 * to not interfering with USB2.0 communication

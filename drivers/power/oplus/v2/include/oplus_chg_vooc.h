@@ -20,8 +20,11 @@ enum vooc_topic_item {
 	VOOC_ITEM_GET_BCC_STOP_CURR,
 	VOOC_ITEM_GET_BCC_TEMP_RANGE,
 	VOOC_ITEM_GET_BCC_SVOOC_TYPE,
+	VOOC_ITEM_VOOCPHY_BCC_GET_FASTCHG_ING,
 	VOOC_ITEM_GET_AFI_CONDITION,
 	VOOC_ITEM_BREAK_CODE,
+	VOOC_ITEM_TEMP_RANGE,
+	VOOC_ITEM_SLOW_CHG_BATT_LIMIT,
 };
 
 enum {
@@ -49,6 +52,13 @@ enum {
 	BCC_SOC_75_TO_85,
 	BCC_SOC_85_TO_90,
 	BCC_SOC_MAX,
+};
+
+enum vooc_curr_table_type {
+	VOOC_CURR_TABLE_OLD_1_0 = 0,
+	VOOC_CURR_TABLE_1_0,
+	VOOC_CURR_TABLE_2_0,
+	VOOC_CP_CURR_TABLE
 };
 
 /*
@@ -106,6 +116,7 @@ enum oplus_fast_chg_status {
 	CHARGER_STATUS_FAST_DUMMY,
 	CHARGER_STATUS_SWITCH_TEMP_RANGE,
 	CHARGER_STATUS_TIMEOUT_RETRY,
+	CHARGER_STATUS_CURR_LIMIT,
 };
 
 enum oplus_vooc_limit_level {
@@ -145,6 +156,37 @@ enum oplus_vooc_limit_level_7bit {
 	CURR_LIMIT_7BIT_12_0A,
 	CURR_LIMIT_7BIT_12_5A,
 	CURR_LIMIT_7BIT_MAX,
+};
+
+enum oplus_cp_limit_level_7bit {
+	CP_CURR_LIMIT_7BIT_2_0A = 0x01,
+	CP_CURR_LIMIT_7BIT_2_1A,
+	CP_CURR_LIMIT_7BIT_2_4A,
+	CP_CURR_LIMIT_7BIT_3_0A,
+	CP_CURR_LIMIT_7BIT_3_4A,
+	CP_CURR_LIMIT_7BIT_4_0A,
+	CP_CURR_LIMIT_7BIT_4_4A,
+	CP_CURR_LIMIT_7BIT_5_0A,
+	CP_CURR_LIMIT_7BIT_5_4A,
+	CP_CURR_LIMIT_7BIT_6_0A,
+	CP_CURR_LIMIT_7BIT_6_4A,
+	CP_CURR_LIMIT_7BIT_7_0A,
+	CP_CURR_LIMIT_7BIT_7_4A,
+	CP_CURR_LIMIT_7BIT_8_0A,
+	CP_CURR_LIMIT_7BIT_9_0A,
+	CP_CURR_LIMIT_7BIT_10_0A,
+	CP_CURR_LIMIT_7BIT_11_0A,
+	CP_CURR_LIMIT_7BIT_12_0A,
+	CP_CURR_LIMIT_7BIT_12_6A,
+	CP_CURR_LIMIT_7BIT_13_0A,
+	CP_CURR_LIMIT_7BIT_14_0A,
+	CP_CURR_LIMIT_7BIT_15_0A,
+	CP_CURR_LIMIT_7BIT_16_0A,
+	CP_CURR_LIMIT_7BIT_17_0A,
+	CP_CURR_LIMIT_7BIT_18_0A,
+	CP_CURR_LIMIT_7BIT_19_0A,
+	CP_CURR_LIMIT_7BIT_20_0A,
+	CP_CURR_LIMIT_7BIT_MAX,
 };
 
 enum oplus_bat_temp {
@@ -205,6 +247,29 @@ enum {
 	FAST_SOC_MAX,
 };
 
+enum vooc_project_type{
+	VOOC_PROJECT_UNKOWN,
+	VOOC_PROJECT_5V4A_5V6A_VOOC = 1,
+	VOOC_PROJECT_10V5A_TWO_BAT_SVOOC = 2,
+	VOOC_PROJECT_10V6P5A_TWO_BAT_SVOOC = 3,
+	VOOC_PROJECT_10V5A_SINGLE_BAT_SVOOC = 4,
+	VOOC_PROJECT_11V3A_SINGLE_BAT_SVOOC = 5,
+	VOOC_PROJECT_10V6A_SINGLE_BAT_SVOOC = 6,
+	VOOC_PROJECT_10V8A_TWO_BAT_SVOOC = 7,
+	VOOC_PROJECT_10V10A_TWO_BAT_SVOOC = 8,
+	VOOC_PROJECT_20V7P5A_TWO_BAT_SVOOC = 9,
+	VOOC_PROJECT_10V6P6A_SINGLE_BAT_SVOOC = 12,
+	VOOC_PROJECT_11V6P1A_SINGLE_BAT_SVOOC = 13,
+	VOOC_PROJECT_20V6A_TWO_BAT_SVOOC = 14,
+	VOOC_PROJECT_11V4A_SINGLE_BAT_SVOOC = 15,
+	VOOC_PROJECT_20V12A_TWO_BAT_SVOOC = 16,
+	VOOC_PROJECT_200W_SVOOC = 17,
+	VOOC_PROJECT_88W_SVOOC = 18,
+	VOOC_PROJECT_55W_SVOOC = 19,
+	VOOC_PROJECT_125W_SVOOC = 20,
+	VOOC_PROJECT_OTHER,
+};
+
 struct batt_bcc_curve {
 	unsigned int target_volt;
 	unsigned int max_ibus;
@@ -223,6 +288,7 @@ struct batt_bcc_curves {
 
 /* vooc API */
 uint32_t oplus_vooc_get_project(struct oplus_mms *topic);
+int oplus_vooc_set_project(struct oplus_mms *topic, uint32_t val);
 uint32_t oplus_vooc_get_voocphy_support(struct oplus_mms *topic);
 void oplus_api_switch_normal_chg(struct oplus_mms *topic);
 int oplus_api_vooc_set_reset_sleep(struct oplus_mms *topic);
@@ -230,5 +296,6 @@ void oplus_api_vooc_turn_off_fastchg(struct oplus_mms *topic);
 int oplus_vooc_current_to_level(struct oplus_mms *topic, int curr);
 int oplus_vooc_level_to_current(struct oplus_mms *topic, int level);
 int oplus_vooc_get_batt_curve_current(struct oplus_mms *topic);
+bool oplus_vooc_get_bcc_support_for_smartchg(struct oplus_mms *topic);
 
 #endif /* __OPLUS_CHG_VOOC_H__ */

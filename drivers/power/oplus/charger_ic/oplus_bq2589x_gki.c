@@ -39,7 +39,11 @@
 #define _BQ25890H_
 #include "oplus_bq2589x_reg.h"
 #include <linux/time.h>
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 #include <mtk_musb.h>
+#else
+#include <mtu3.h>
+#endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #include <soc/oplus/system/oplus_project.h>
 #endif
@@ -69,6 +73,11 @@ extern int get_rtc_spare_oplus_fg_value(void);
 extern int set_rtc_spare_oplus_fg_value(int value);
 extern void oplus_mt6789_usbtemp_set_cc_open(void);
 extern void oplus_mt6789_usbtemp_set_typec_sinkonly(void);
+int oplus_bq2589x_disable_otg(void);
+int __attribute__((weak)) oplus_force_get_subboard_temp(void)
+{
+	return 0;
+}
 
 #define DEFAULT_CV 4435
 
@@ -575,6 +584,20 @@ static int bq2589x_disable_charger(struct bq2589x *bq)
 	}
 
 	return ret;
+}
+
+static u8 bq2589x_check_fault_reg(struct bq2589x *bq)
+{
+	int ret = 0;
+	u8 val;
+
+	ret = bq2589x_read_byte(bq, BQ2589X_REG_0C, &val);
+	if (ret < 0) {
+		chg_err("%s failed to read register 0x0C:%d\n", __func__, ret);
+		return 0;
+	}
+
+	return val;
 }
 
 int bq2589x_adc_start(struct bq2589x *bq, bool oneshot)
@@ -1432,6 +1455,12 @@ static irqreturn_t bq2589x_irq_handler(int irq, void *data)
 				oplus_vooc_get_fast_chg_type(), chip->waiting_for_ffc, prev_pg,
 				bq->power_good, oplus_vooc_get_fastchg_started());
 		goto POWER_CHANGE;
+	}
+
+
+	if(bq2589x_check_fault_reg(bq) & (1 << BQ2589X_FAULT_BOOST_SHIFT)) {
+		oplus_bq2589x_disable_otg();
+		chg_debug("VBUS overloaded in OTG, or VBUS OVP to disable OTG\n");
 	}
 
 	if (!prev_pg && bq->power_good) {
@@ -3074,9 +3103,6 @@ int oplus_bq2589x_set_qc_config(void)
 	int ret = 0;
 
 	if(g_bq->chg_consumer != NULL) {
-		/* info is null retry 1 time */
-		g_bq->chg_consumer =
-			charger_manager_get_by_name(g_bq->dev, "bq2589x");
 		info = g_bq->chg_consumer->cm;
 	}
 
@@ -3522,7 +3548,10 @@ struct oplus_chg_operations  oplus_chg_bq2589x_ops = {
 	.get_usbtemp_volt = oplus_get_usbtemp_volt,
 	.set_typec_cc_open = oplus_mt6789_usbtemp_set_cc_open,
 	.set_typec_sinkonly = oplus_mt6789_usbtemp_set_typec_sinkonly,
+#ifdef CONFIG_OPLUS_CHARGER_MTK
 	.get_platform_gauge_curve = oplus_chg_choose_gauge_curve,
+#endif /* CONFIG_OPLUS_CHARGER_MTK */
+	.get_subboard_temp = oplus_force_get_subboard_temp,
 };
 
 static void retry_detection_work_callback(struct work_struct *work)
@@ -3690,6 +3719,7 @@ static int pd_tcp_notifier_call(struct notifier_block *nb,
 				cancel_delayed_work_sync(&bq->bq2589x_aicr_setting_work);
 				cancel_delayed_work_sync(&bq->bq2589x_hvdcp_bc12_work);
 				oplus_chg_wake_update_work();
+                                oplus_chg_wakelock(bq, false);
 				chg_info("usb real remove vooc fastchg clear flag!\n");
 			}
 		}

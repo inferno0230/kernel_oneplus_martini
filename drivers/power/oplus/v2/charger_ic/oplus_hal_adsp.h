@@ -20,6 +20,7 @@
 #include <linux/power_supply.h>
 #include <linux/soc/qcom/pmic_glink.h>
 #include <linux/soc/qcom/battery_charger.h>
+#include <linux/regmap.h>
 #include <oplus_chg_ic.h>
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
@@ -30,6 +31,9 @@
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define OEM_OPCODE_READ_BUFFER    0x10000
+#define BCC_OPCODE_READ_BUFFER    0x10003
+#define PPS_OPCODE_READ_BUFFER    0x10004
+#define UFCS_OPCODE_READ_BUFFER   0x10005
 #define OEM_READ_WAIT_TIME_MS    500
 #define MAX_OEM_PROPERTY_DATA_SIZE 128
 #endif
@@ -77,6 +81,13 @@
 #define BC_ADSP_NOTIFY_AP_CP_MOS_DISABLE	0x0064
 #define BC_PPS_OPLUS				0x65
 #define BC_ADSP_NOTIFY_TRACK			0x66
+#define BC_UFCS_TEST_MODE_TRUE		0X68
+#define BC_UFCS_TEST_MODE_FALSE		0X69
+#define BC_UFCS_POWER_READY		0X70
+#endif
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#define WLS_BOOST_VOL_MIN_MV 4800
 #endif
 
 /* Generic definitions */
@@ -117,6 +128,18 @@ enum ship_mode_type {
 	SHIP_MODE_PMIC,
 	SHIP_MODE_PACK_SIDE,
 };
+
+typedef enum {
+	DOUBLE_SERIES_WOUND_CELLS = 0,
+	SINGLE_CELL,
+	DOUBLE_PARALLEL_WOUND_CELLS,
+} SCC_CELL_TYPE;
+
+typedef enum {
+	TI_GAUGE = 0,
+	SW_GAUGE,
+	UNKNOWN_GAUGE_TYPE,
+} SCC_GAUGE_TYPE;
 
 /* property ids */
 enum battery_property_id {
@@ -166,6 +189,8 @@ enum battery_property_id {
 	BATT_ZY0603_CHECK_RC_SFR,
 	BATT_ZY0603_SOFT_RESET,
 	BATT_AFI_UPDATE_DONE,
+	BATT_UI_SOC,
+	BATT_AP_FASTCHG_ALLOW,
 #endif
 	BATT_PROP_MAX,
 };
@@ -224,6 +249,22 @@ enum usb_property_id {
 	USB_PPS_VOOCPHY_ENABLE,
 	USB_IN_STATUS,
 	USB_GET_BATT_CURR,
+	USB_PPS_FORCE_SVOOC,
+	USB_SET_OVP_CFG,
+	USB_SET_UFCS_START,
+	USB_SET_UFCS_VOLT,
+	USB_SET_UFCS_CURRENT,
+	USB_GET_UFCS_STATUS,
+	USB_GET_DEV_INFO_L,
+	USB_GET_DEV_INFO_H,
+	USB_SET_WD_TIME,
+	USB_GET_PDO_INFO_CURR,
+	USB_GET_PDO_INFO_VOLT,
+	USB_GET_PDO_INFO_STEP,
+	USB_SET_EXIT,
+	USB_GET_SRC_INFO_L,
+	USB_GET_SRC_INFO_H,
+	USB_SET_GET_SRC,
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
 	USB_PROP_MAX,
 };
@@ -254,6 +295,10 @@ enum {
 	QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3P5,
 };
 
+enum oplus_power_supply_usb_type {
+	POWER_SUPPLY_USB_TYPE_PD_SDP = 17,
+};
+
 enum OTG_SCHEME {
 	OTG_SCHEME_CID,
 	OTG_SCHEME_CCDETECT_GPIO,
@@ -272,6 +317,15 @@ enum OEM_MISC_CTL_CMD {
 	OEM_MISC_CTL_CMD_NCM_AUTO_MODE = 4,
 	OEM_MISC_CTL_CMD_VPH_TRACK_HIGH = 6,
 };
+
+typedef enum _QCOM_PM_TYPEC_PORT_ROLE_TYPE
+{
+	QCOM_TYPEC_PORT_ROLE_DRP,
+	QCOM_TYPEC_PORT_ROLE_SNK,
+	QCOM_TYPEC_PORT_ROLE_SRC,
+	QCOM_TYPEC_PORT_ROLE_DISABLE,
+	QCOM_TYPEC_PORT_ROLE_INVALID,
+} QCOM_PM_TYPEC_PORT_ROLE_TYPE;
 
 struct battery_charger_set_notify_msg {
 	struct pmic_glink_hdr	hdr;
@@ -363,21 +417,37 @@ struct oplus_custom_gpio_pinctrl {
 	int vchg_trig_gpio;
 	int otg_boost_en_gpio;
 	int otg_ovp_en_gpio;
+	int tx_boost_en_gpio;
+	int tx_ovp_en_gpio;
+	int wrx_ovp_off_gpio;
+	int wrx_otg_en_gpio;
 	struct mutex pinctrl_mutex;
 	struct pinctrl *vchg_trig_pinctrl;
 	struct pinctrl_state *vchg_trig_default;
-	struct pinctrl			*usbtemp_l_gpio_pinctrl;
-	struct pinctrl_state	*usbtemp_l_gpio_default;
-	struct pinctrl			*usbtemp_r_gpio_pinctrl;
-	struct pinctrl		*subboard_temp_gpio_pinctrl;
-	struct pinctrl_state	*subboard_temp_gpio_default;
-	struct pinctrl_state	*usbtemp_r_gpio_default;
-	struct pinctrl          *otg_boost_en_pinctrl;
-	struct pinctrl_state    *otg_boost_en_active;
-	struct pinctrl_state    *otg_boost_en_sleep;
-	struct pinctrl          *otg_ovp_en_pinctrl;
-	struct pinctrl_state    *otg_ovp_en_active;
-	struct pinctrl_state    *otg_ovp_en_sleep;
+	struct pinctrl *usbtemp_l_gpio_pinctrl;
+	struct pinctrl_state *usbtemp_l_gpio_default;
+	struct pinctrl *usbtemp_r_gpio_pinctrl;
+	struct pinctrl *subboard_temp_gpio_pinctrl;
+	struct pinctrl_state *subboard_temp_gpio_default;
+	struct pinctrl_state *usbtemp_r_gpio_default;
+	struct pinctrl *otg_boost_en_pinctrl;
+	struct pinctrl_state *otg_boost_en_active;
+	struct pinctrl_state *otg_boost_en_sleep;
+	struct pinctrl *otg_ovp_en_pinctrl;
+	struct pinctrl_state *otg_ovp_en_active;
+	struct pinctrl_state *otg_ovp_en_sleep;
+	struct pinctrl *tx_boost_en_pinctrl;
+	struct pinctrl_state *tx_boost_en_active;
+	struct pinctrl_state *tx_boost_en_sleep;
+	struct pinctrl *tx_ovp_en_pinctrl;
+	struct pinctrl_state *tx_ovp_en_active;
+	struct pinctrl_state *tx_ovp_en_sleep;
+	struct pinctrl *wrx_ovp_off_pinctrl;
+	struct pinctrl_state *wrx_ovp_off_active;
+	struct pinctrl_state *wrx_ovp_off_sleep;
+	struct pinctrl *wrx_otg_en_pinctrl;
+	struct pinctrl_state *wrx_otg_en_active;
+	struct pinctrl_state *wrx_otg_en_sleep;
 };
 
 #endif
@@ -395,9 +465,16 @@ struct battery_chg_dev {
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	struct oplus_chg_ic_dev		*buck_ic;
 	struct oplus_chg_ic_dev		*gauge_ic;
+	struct oplus_chg_ic_dev		*cp_ic;
+	struct oplus_chg_ic_dev		*misc_ic;
+	struct oplus_chg_ic_dev		*pps_ic;
 	struct oplus_mms		*vooc_topic;
+	struct oplus_chg_ic_dev		*ufcs_ic;
 	struct oplus_mms		*common_topic;
+	struct oplus_mms		*pps_topic;
 	struct votable			*chg_disable_votable;
+	struct mutex			chg_en_lock;
+	bool 				    chg_en;
 #endif
 	struct class			battery_class;
 	struct pmic_glink_client	*client;
@@ -412,6 +489,8 @@ struct battery_chg_dev {
 	int				curr_thermal_level;
 	int				num_thermal_levels;
 	int				charger_type;
+	int				last_charger_type;
+	int				adsp_crash;
 	atomic_t			state;
 	struct work_struct		subsys_up_work;
 	struct work_struct		usb_type_work;
@@ -446,7 +525,10 @@ struct battery_chg_dev {
 	unsigned long long 	hvdcp_detach_time;
 	bool 				hvdcp_detect_ok;
 	bool					hvdcp_disable;
+	bool				ufcs_test_mode;
+	bool				ufcs_power_ready;
 	struct delayed_work 	hvdcp_disable_work;
+	struct delayed_work 	pd_only_check_work;
 	bool					voocphy_err_check;
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
@@ -456,8 +538,12 @@ struct battery_chg_dev {
 	struct delayed_work wait_wired_charge_off;
 	bool wls_fw_update;
 	int batt_num;
-	bool	cid_status;
+	bool cid_status;
 	atomic_t suspended;
+	bool wls_boost_soft_start;
+	int wls_set_boost_vol;
+	int wls_boost_vol_start_mv;
+	int wls_boost_vol_max_mv;
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
 	int				fake_soc;
 	bool				block_tx;
@@ -477,11 +563,27 @@ struct battery_chg_dev {
 	struct mutex    read_buffer_lock;
 	struct completion    oem_read_ack;
 	struct oem_read_buffer_resp_msg  read_buffer_dump;
+	struct mutex    bcc_read_buffer_lock;
+	struct completion    bcc_read_ack;
+	struct oem_read_buffer_resp_msg  bcc_read_buffer_dump;
+	struct oem_read_buffer_resp_msg  ufcs_read_buffer_dump;
+	struct mutex	ufcs_read_buffer_lock;
+	struct completion	 ufcs_read_ack;
+	struct oem_read_buffer_resp_msg  pps_read_buffer_dump;
+	struct mutex	pps_read_buffer_lock;
+	struct completion	 pps_read_ack;
+	int cp_work_mode;
+	bool gauge_data_initialized;
 	int otg_scheme;
 	int otg_boost_src;
 	struct notifier_block	ssr_nb;
 	void		*subsys_handle;
 	int usb_in_status;
+
+	enum oplus_dpdm_switch_mode dpdm_switch_mode;
+
+	struct regmap *regmap;
+	struct delayed_work get_regmap_work;
 #endif
 };
 
@@ -517,5 +619,12 @@ struct qcom_pmic {
 int oplus_adsp_voocphy_get_fast_chg_type(void);
 int oplus_adsp_voocphy_enable(bool enable);
 int oplus_adsp_voocphy_reset_again(void);
+int oplus_adsp_batt_curve_current(void);
+void oplus_chg_set_match_temp_ui_soc_to_voocphy(void);
+void oplus_chg_set_ap_fastchg_allow_to_voocphy(int allow);
+int oplus_adsp_voocphy_set_cool_down(int cool_down);
+int oplus_adsp_voocphy_get_bcc_max_current(void);
+int oplus_adsp_voocphy_get_bcc_min_current(void);
+int oplus_adsp_voocphy_get_atl_last_geat_current(void);
 #endif
 #endif /*__SM8350_CHARGER_H*/

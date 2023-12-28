@@ -25,7 +25,7 @@
 #define qti_battery_charger_get_prop qti_battery_charger_get_prop_v2
 #endif /* USE_ADSP */
 
-#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK6895S)
+#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK) && IS_ENABLED(CONFIG_OPLUS_CHG_V2)
 
 #define oplus_chg_wake_update_work oplus_chg_wake_update_work_v2
 #define oplus_chg_check_chip_is_null oplus_chg_check_chip_is_null_v2
@@ -48,8 +48,9 @@
 #define is_meta_mode is_meta_mode_v2
 #define oplus_tchg_01c_precision oplus_tchg_01c_precision_v2
 #define oplus_force_get_subboard_temp oplus_force_get_subboard_temp_v2
+#define oplus_get_hmac oplus_get_hmac_v2
 
-#endif /* CONFIG_OPLUS_CHARGER_MTK6895S */
+#endif /* CONFIG_OPLUS_CHARGER_MTK && CONFIG_OPLUS_CHG_V2 */
 
 #endif /* CONFIG_OPLUS_CHG & CONFIG_OPLUS_CHG_V2 */
 #endif /* OPLUS_CHG_KO_BUILD */

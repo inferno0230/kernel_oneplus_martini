@@ -1082,7 +1082,7 @@ enum oplus_chg_ffc_temp_region oplus_chg_comm_get_ffc_temp_region(struct oplus_c
 		}
 		comm_dev->ffc_temp_region = temp_region;
 	} else if (comm_dev->ffc_temp_region < temp_region) {
-		for (i = 0; i < BATT_TEMP_INVALID - 1; i++) {
+		for (i = 0; i < FFC_TEMP_INVALID - 1; i++) {
 			if (i == (temp_region - 1))
 				comm_dev->ffc_temp_dynamic_thr[i] = comm_dev->ffc_temp_dynamic_thr[i] - BATT_TEMP_HYST;
 			else
@@ -2138,6 +2138,8 @@ lcd_notif_reg_err:
 	oplus_chg_mod_unregister(comm_dev->comm_ocm);
 #endif
 comm_mod_init_err:
+	if (!IS_ERR_OR_NULL(comm_dev->skin_therm_chan))
+		iio_channel_release(comm_dev->skin_therm_chan);
 parse_dt_err:
 	devm_kfree(&pdev->dev, comm_dev);
 	return rc;
@@ -2154,6 +2156,8 @@ static int oplus_chg_comm_driver_remove(struct platform_device *pdev)
 	oplus_chg_unreg_event_notifier(&comm_dev->comm_event_nb);
 	oplus_chg_unreg_mod_notifier(comm_dev->comm_ocm, &comm_dev->comm_mod_nb);
 	oplus_chg_mod_unregister(comm_dev->comm_ocm);
+	if (!IS_ERR_OR_NULL(comm_dev->skin_therm_chan))
+		iio_channel_release(comm_dev->skin_therm_chan);
 	devm_kfree(&pdev->dev, comm_dev);
 	return 0;
 }

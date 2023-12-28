@@ -100,6 +100,7 @@ static inline void do_gettimeofday(struct timeval *tv)
         tv->tv_usec = now.tv_nsec/1000;
 }
 #endif
+
 static DEFINE_MUTEX(ra9530_i2c_access);
 
 #define RA9530_ADD_COUNT      2

@@ -142,11 +142,11 @@ enum {
 #define OPLUS_CHG_BATT_AGING_CAP_DECREASE 300
 
 #define OPLUS_CHG_BATT_INVALID_CAPACITY  -0x1010101
-#define OPLUS_CHG_BATT_S0C_CAPACITY_LOAD_JUMP_NUM      5
-#define OPLUS_CHG_BATT_UI_S0C_CAPACITY_LOAD_JUMP_NUM   5
-#define OPLUS_CHG_BATT_S0C_CAPACITY_JUMP_NUM           3
-#define OPLUS_CHG_BATT_UI_S0C_CAPACITY_JUMP_NUM        5
-#define OPLUS_CHG_BATT_UI_TO_S0C_CAPACITY_JUMP_NUM     3
+#define OPLUS_CHG_BATT_SOC_CAPACITY_LOAD_JUMP_NUM      5
+#define OPLUS_CHG_BATT_UI_SOC_CAPACITY_LOAD_JUMP_NUM   5
+#define OPLUS_CHG_BATT_SOC_CAPACITY_JUMP_NUM           3
+#define OPLUS_CHG_BATT_UI_SOC_CAPACITY_JUMP_NUM        5
+#define OPLUS_CHG_BATT_UI_TO_SOC_CAPACITY_JUMP_NUM     3
 
 #define OPLUS_CHG_MONITOR_FILE   "/data/oplus_charge/oplus_chg_debug_monitor.txt"
 #define OPLUS_CHG_BATT_AGING_CHECK_CNT   360
@@ -2167,11 +2167,11 @@ static int oplus_chg_chg_batt_capacity_jump_check(struct oplus_chg_chip *chip)
 		oplus_chg_debug_info.cur_ui_soc = chip->ui_soc;
 		oplus_chg_debug_info.pre_ui_soc = chip->ui_soc;
 
-		if (abs(oplus_chg_debug_info.cur_soc - chip->soc_load) > OPLUS_CHG_BATT_S0C_CAPACITY_LOAD_JUMP_NUM) {
+		if (abs(oplus_chg_debug_info.cur_soc - chip->soc_load) > OPLUS_CHG_BATT_SOC_CAPACITY_LOAD_JUMP_NUM) {
 			oplus_chg_debug_info.soc_load_flag |= 1 << OPLUS_NOTIFY_BATT_SOC_CAPCITY_LOAD_JUMP;
 		}
 
-		if (abs(oplus_chg_debug_info.cur_ui_soc - chip->soc_load) > OPLUS_CHG_BATT_UI_S0C_CAPACITY_LOAD_JUMP_NUM) {
+		if (abs(oplus_chg_debug_info.cur_ui_soc - chip->soc_load) > OPLUS_CHG_BATT_UI_SOC_CAPACITY_LOAD_JUMP_NUM) {
 			oplus_chg_debug_info.soc_load_flag |= 1 << OPLUS_NOTIFY_BATT_UI_SOC_CAPCITY_LOAD_JUMP;
 		}
 
@@ -2199,7 +2199,7 @@ static int oplus_chg_chg_batt_capacity_jump_check(struct oplus_chg_chip *chip)
 			oplus_chg_debug_info.cur_soc = chip->soc;
 			oplus_chg_debug_info.cur_ui_soc = chip->ui_soc;
 		}
-		if ((abs(oplus_chg_debug_info.cur_soc - oplus_chg_debug_info.pre_soc) > OPLUS_CHG_BATT_S0C_CAPACITY_JUMP_NUM)
+		if ((abs(oplus_chg_debug_info.cur_soc - oplus_chg_debug_info.pre_soc) > OPLUS_CHG_BATT_SOC_CAPACITY_JUMP_NUM)
 				&& (!oplus_chg_soc_notified_flag_is_set(OPLUS_NOTIFY_BATT_SOC_CAPCITY_JUMP))) {
 			oplus_chg_set_chg_flag(OPLUS_NOTIFY_BATT_SOC_CAPCITY_JUMP);
 			if (oplus_chg_debug_notify_flag_is_set(OPLUS_NOTIFY_BATT_SOC_CAPCITY_JUMP)) {
@@ -2212,7 +2212,7 @@ static int oplus_chg_chg_batt_capacity_jump_check(struct oplus_chg_chip *chip)
 			if (oplus_chg_debug_info.cur_soc == oplus_chg_debug_info.pre_soc) {
 				oplus_chg_unset_soc_notified_flag(OPLUS_NOTIFY_BATT_SOC_CAPCITY_JUMP);
 			}
-			if ((abs(oplus_chg_debug_info.cur_ui_soc - oplus_chg_debug_info.pre_ui_soc) > OPLUS_CHG_BATT_UI_S0C_CAPACITY_JUMP_NUM)
+			if ((abs(oplus_chg_debug_info.cur_ui_soc - oplus_chg_debug_info.pre_ui_soc) > OPLUS_CHG_BATT_UI_SOC_CAPACITY_JUMP_NUM)
 					&& (!oplus_chg_soc_notified_flag_is_set(OPLUS_NOTIFY_BATT_UI_SOC_CAPCITY_JUMP))) {
 				oplus_chg_set_chg_flag(OPLUS_NOTIFY_BATT_UI_SOC_CAPCITY_JUMP);
 				if (oplus_chg_debug_notify_flag_is_set(OPLUS_NOTIFY_BATT_UI_SOC_CAPCITY_JUMP)) {
@@ -2225,7 +2225,7 @@ static int oplus_chg_chg_batt_capacity_jump_check(struct oplus_chg_chip *chip)
 				if (oplus_chg_debug_info.cur_ui_soc == oplus_chg_debug_info.pre_ui_soc) {
 					oplus_chg_unset_soc_notified_flag(OPLUS_NOTIFY_BATT_UI_SOC_CAPCITY_JUMP);
 				}
-				if ((abs(oplus_chg_debug_info.cur_ui_soc - oplus_chg_debug_info.cur_soc) > OPLUS_CHG_BATT_UI_TO_S0C_CAPACITY_JUMP_NUM)
+				if ((abs(oplus_chg_debug_info.cur_ui_soc - oplus_chg_debug_info.cur_soc) > OPLUS_CHG_BATT_UI_TO_SOC_CAPACITY_JUMP_NUM)
 						&& (!oplus_chg_soc_notified_flag_is_set(OPLUS_NOTIFY_BATT_UI_TO_SOC_CAPCITY_JUMP))
 						&& ui_to_soc_jump_flag == false) {
 					oplus_chg_set_chg_flag(OPLUS_NOTIFY_BATT_UI_TO_SOC_CAPCITY_JUMP);

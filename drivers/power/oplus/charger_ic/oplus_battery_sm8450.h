@@ -587,6 +587,12 @@ struct battery_chg_dev {
 	oplus_chg_track_trigger *icl_err_load_trigger;
 	struct delayed_work icl_err_load_trigger_work;
 
+	struct mutex track_adsp_err_lock;
+	u32 debug_pmic_glink_err;
+	bool adsp_err_uploading;
+	oplus_chg_track_trigger *adsp_err_load_trigger;
+	struct delayed_work adsp_err_load_trigger_work;
+
 	struct mutex adsp_track_read_buffer_lock;
 	struct completion adsp_track_read_ack;
 	struct adsp_track_read_resp_msg adsp_track_read_buffer;

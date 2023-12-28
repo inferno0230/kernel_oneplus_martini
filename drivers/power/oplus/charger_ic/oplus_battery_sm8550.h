@@ -35,6 +35,7 @@
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #define OEM_OPCODE_READ_BUFFER    0x10000
+#define OEM_OPCODE_WDOG_READ_BUFFER    0x10006
 #define BCC_OPCODE_READ_BUFFER    0x10003
 #define PPS_OPCODE_READ_BUFFER    0x10004
 #define OEM_READ_WAIT_TIME_MS    500
@@ -87,6 +88,7 @@
 #define BC_ADSP_NOTIFY_AP_CP_MOS_DISABLE                         0x0064
 #define BC_PPS_OPLUS                    0x65
 #define BC_ADSP_NOTIFY_TRACK				0x66
+#define BC_ABNORMAL_PD_SVOOC_ADAPTER			0x67
 #endif
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
@@ -265,6 +267,10 @@ enum usb_property_id {
 	USB_PPS_VOOCPHY_ENABLE,
 	USB_IN_STATUS,
 	USB_GET_BATT_CURR,
+	USB_PPS_FORCE_SVOOC,
+	USB_PLUGIN_CNT,
+	USB_GET_PRE_IS_ABNORMAL_ADAPTER,
+	USB_GET_ABNORMAL_ADAPTER_DISCONNECT_CNT,
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
 	USB_PROP_MAX,
 };
@@ -411,6 +417,7 @@ struct oplus_custom_gpio_pinctrl {
 	int tx_ovp_en_gpio;
 	int wrx_ovp_off_gpio;
 	int wrx_otg_en_gpio;
+	int mcu_en_gpio;
 	struct mutex pinctrl_mutex;
 	struct pinctrl *vchg_trig_pinctrl;
 	struct pinctrl_state *vchg_trig_default;
@@ -445,6 +452,13 @@ struct oplus_custom_gpio_pinctrl {
 	struct pinctrl_state	*batt0_btb_gpio_default;
 	struct pinctrl		*batt1_btb_gpio_pinctrl;
 	struct pinctrl_state	*batt1_btb_gpio_default;
+	struct pinctrl		*mcu_en_pinctrl;
+	struct pinctrl_state	*mcu_en_active;
+	struct pinctrl_state	*mcu_en_sleep;
+	struct pinctrl		*mos0_btb_gpio_pinctrl;
+	struct pinctrl_state	*mos0_btb_gpio_default;
+	struct pinctrl		*mos1_btb_gpio_pinctrl;
+	struct pinctrl_state	*mos1_btb_gpio_default;
 };
 #endif
 
@@ -457,6 +471,8 @@ struct oplus_chg_iio {
 	struct iio_channel	*batt0_con_btb_chan;
 	struct iio_channel      *batt1_con_btb_chan;
 	struct iio_channel	*usbcon_btb_chan;
+	struct iio_channel	*mos0_con_btb_chan;
+	struct iio_channel      *mos1_con_btb_chan;
 };
 #endif
 
@@ -505,6 +521,7 @@ struct battery_chg_dev {
 	struct delayed_work ctrl_lcm_frequency;
 /*#endif*/
 	struct delayed_work	oem_lcm_en_check_work;
+	struct delayed_work	apsd_force_svooc_work;
 	u32			oem_misc_ctl_data;
 	bool			oem_usb_online;
 	struct delayed_work	adsp_voocphy_err_work;
@@ -522,6 +539,7 @@ struct battery_chg_dev {
 	bool 				chg_en;
 	bool					cid_status;
 	bool					qc_enable_status;
+	bool					force_svooc;
 
 	struct delayed_work status_keep_clean_work;
 	struct delayed_work status_keep_delay_unlock_work;
@@ -566,17 +584,24 @@ struct battery_chg_dev {
 	struct mutex    bcc_read_buffer_lock;
 	struct completion    bcc_read_ack;
 	struct oem_read_buffer_resp_msg  bcc_read_buffer_dump;
+	struct mutex read_pmic_buffer_lock;
+	struct completion read_pmic_buffer_ack;
+	struct oem_read_buffer_resp_msg read_pmic_buffer_dump;
+	bool gauge_data_initialized;
 	int otg_scheme;
 	int otg_boost_src;
 	int otg_curr_limit_max;
 	int otg_curr_limit_high;
 	int otg_real_soc_min;
 	int usbtemp_thread_100w_support;
+	bool subboard_adjust_support;
 	bool otg_prohibited;
 	struct notifier_block	ssr_nb;
 	void			*subsys_handle;
 	int usb_in_status;
 	int real_chg_type;
+	int adspvoocphy_plugin_cnt;
+	int abnormal_adapter_disconnect_cnt;
 
 	char dump_info[OPLUS_CHG_TRACK_CURX_INFO_LEN];
 	char chg_power_info[OPLUS_CHG_TRACK_CURX_INFO_LEN];
@@ -589,10 +614,18 @@ struct battery_chg_dev {
 	oplus_chg_track_trigger *icl_err_load_trigger;
 	struct delayed_work icl_err_load_trigger_work;
 
+	struct mutex track_adsp_err_lock;
+	u32 debug_pmic_glink_err;
+	bool adsp_err_uploading;
+	oplus_chg_track_trigger *adsp_err_load_trigger;
+	struct delayed_work adsp_err_load_trigger_work;
+
 	struct mutex adsp_track_read_buffer_lock;
 	struct completion adsp_track_read_ack;
 	struct adsp_track_read_resp_msg adsp_track_read_buffer;
 	struct delayed_work adsp_track_notify_work;
+	struct delayed_work mcu_en_init_work;
+	struct delayed_work adspvoocphy_plugin_cnt_check_work;
 #endif
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	struct mutex	pps_read_buffer_lock;
@@ -601,6 +634,7 @@ struct battery_chg_dev {
 #endif
 	/* To track the driver initialization status */
 	bool				initialized;
+	bool plugin_already_run;
 };
 /**********************************************************************
  **********************************************************************/

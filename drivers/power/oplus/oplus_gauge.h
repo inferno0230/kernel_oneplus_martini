@@ -174,6 +174,7 @@ int oplus_gauge_get_passedchg(int *val);
 void oplus_gauge_set_float_uv_ma(int iterm_ma, int float_volt_uv);
 int oplus_gauge_dump_register(void);
 int oplus_gauge_get_sub_batt_mvolts(void);
+int oplus_gauge_get_sub_prev_batt_mvolts(void);
 int oplus_gauge_get_sub_batt_current(void);
 int oplus_gauge_get_main_batt_soc(void);
 int oplus_gauge_get_sub_batt_soc(void);

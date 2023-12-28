@@ -3362,6 +3362,16 @@ static void oplus_mt_power_off(void)
 	}
 }
 
+static int oplus_bq2589x_get_rtc_spare_oplus_fg_value(void)
+{
+	return 0;
+}
+
+static int oplus_bq2589x_set_rtc_spare_oplus_fg_value(int soc)
+{
+	return 0;
+}
+
 static void bq2589x_init_work_handler(struct work_struct *work)
 {
 	int boot_mode = get_boot_mode();
@@ -3454,8 +3464,13 @@ struct oplus_chg_operations  oplus_chg_bq2589x_ops = {
 	.get_boot_mode = (int (*)(void))get_boot_mode,
 	.get_boot_reason = (int (*)(void))get_boot_reason,
 	.get_instant_vbatt = oplus_battery_meter_get_battery_voltage,
+#ifdef CONFIG_OPLUS_CHARGER_MTK
+	.get_rtc_soc = oplus_bq2589x_get_rtc_spare_oplus_fg_value,
+	.set_rtc_soc = oplus_bq2589x_set_rtc_spare_oplus_fg_value,
+#else
 	.get_rtc_soc = oplus_get_rtc_ui_soc,
 	.set_rtc_soc = oplus_set_rtc_ui_soc,
+#endif
 	.set_power_off = oplus_mt_power_off,
 	.usb_connect = mt_usb_connect,
 	.usb_disconnect = mt_usb_disconnect,

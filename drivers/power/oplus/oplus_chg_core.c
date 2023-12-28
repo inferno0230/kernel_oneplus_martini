@@ -544,12 +544,12 @@ EXPORT_SYMBOL_GPL(oplus_chg_mod_get_drvdata);
 
 static int __init oplus_chg_class_init(void)
 {
-	int rc;
 #ifdef MODULE
+	int rc;
 	int module_num, i;
 	struct oplus_chg_module *first_module;
 	struct oplus_chg_module *oplus_module;
-#endif
+
 #if __and(IS_MODULE(CONFIG_OPLUS_CHG), IS_MODULE(CONFIG_OPLUS_CHG_V2))
 	struct device_node *node;
 
@@ -559,7 +559,6 @@ static int __init oplus_chg_class_init(void)
 		return 0;
 #endif /* CONFIG_OPLUS_CHG_V2 */
 
-#ifdef MODULE
 	module_num = oplus_chg_get_module_num();
 	if (module_num == 0) {
 		pr_err("oplus chg module not found, please check oplus_chg_module.lds\n");
@@ -595,8 +594,8 @@ module_init_err:
 		    (oplus_module->chg_module_exit != NULL))
 			oplus_module->chg_module_exit();
 	}
-#endif /* MODULE */
 	return rc;
+#endif /* MODULE */
 }
 
 static void __exit oplus_chg_class_exit(void)
@@ -605,6 +604,15 @@ static void __exit oplus_chg_class_exit(void)
 	int module_num, i;
 	struct oplus_chg_module *first_module;
 	struct oplus_chg_module *oplus_module;
+
+#if __and(IS_MODULE(CONFIG_OPLUS_CHG), IS_MODULE(CONFIG_OPLUS_CHG_V2))
+	struct device_node *node;
+
+	node = of_find_node_by_path("/soc/oplus_chg_core");
+	if (node != NULL &&
+	    of_property_read_bool(node, "oplus,chg_framework_v2"))
+		return;
+#endif /* CONFIG_OPLUS_CHG_V2 */
 
 	module_num = oplus_chg_get_module_num();
 	first_module = oplus_chg_find_first_module();

@@ -2599,7 +2599,7 @@ CCC:
 		return false;
 	/************exit dtm end************/
 
-	pr_err("<FW UPDATE> error_count=%d, pass_count=%d, chip->fw_rx_length=%ld\n",
+	pr_err("<FW UPDATE> error_count=%d, pass_count=%d, chip->fw_rx_length=%d\n",
 		j, pass_count, chip->fw_rx_length);
 
 	pr_err("<FW UPDATE> fw_data version=0x%x, 0x%x, 0x%x, 0x%x\n",

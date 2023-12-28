@@ -667,6 +667,9 @@ static int s2asl01_get_property(struct power_supply *psy,
 	struct s2asl01_switching_data *switching = power_supply_get_drvdata(psy);
 	enum s2m_power_supply_property s2m_psp = (enum s2m_power_supply_property)psp;
 
+	if (IS_ERR_OR_NULL(switching))
+		return -EINVAL;
+
 	switch ((int)psp) {
 	case POWER_SUPPLY_S2M_PROP_MIN ... POWER_SUPPLY_S2M_PROP_MAX:
 		switch (s2m_psp) {
@@ -735,6 +738,8 @@ static int s2asl01_set_property(struct power_supply *psy,
 	enum s2m_power_supply_property s2m_psp = (enum s2m_power_supply_property)psp;
 
 	//pr_info("%s [%s]\n", __func__, current_limiter_type_str[switching->pdata->bat_type]);
+	if (IS_ERR_OR_NULL(switching))
+		return -EINVAL;
 
 	switch ((int)psp) {
 	case POWER_SUPPLY_S2M_PROP_MIN ... POWER_SUPPLY_S2M_PROP_MAX:

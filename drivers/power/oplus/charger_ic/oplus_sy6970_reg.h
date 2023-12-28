@@ -398,5 +398,4 @@
 extern void oplus_set_usb_props_type(enum power_supply_type type);
 extern bool oplus_pd_without_usb(void);
 int oplus_sy6970_charger_unsuspend(void);
-void oplus_set_prswap(bool swap);
 #endif

@@ -77,6 +77,9 @@
 #define SC8517_VAC_INRANGE_ENABLE                   0
 #define SC8517_VAC_INRANGE_DISABLE                  1
 
+/* Register 03h */
+#define SC8517_REG_03                      0x03
+
 /* Register 04h */
 #define SC8517_REG_04                      0x04
 
@@ -115,6 +118,13 @@
 
 /* Register 10h */
 #define SC8517_REG_10                      0x10
+
+/* Register 12h */
+#define SC8517_REG_12                       0x12
+#define RVS_OCP_DG                          BIT(3)
+#define NO_EXTRA_DEGLITCH                   0
+#define EXTRA_10US_DEGLITCH                 1
+#define EXTRA_10US_DEGLITCH_SHIFT           3
 
 /* Register 15h */
 #define SC8517_REG_15                      0x15

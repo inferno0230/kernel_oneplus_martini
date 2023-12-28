@@ -840,6 +840,23 @@ struct chip_sc8571 {
 	struct pinctrl_state *ucp_int_active;
 	struct pinctrl_state *ucp_int_sleep;
 	struct mutex cp_enable_mutex;
+
+	char chg_power_info[OPLUS_CHG_TRACK_CURX_INFO_LEN];
+	char err_reason[OPLUS_CHG_TRACK_DEVICE_ERR_NAME_LEN];
+	char dump_info[OPLUS_CHG_TRACK_CURX_INFO_LEN];
+	struct mutex track_upload_lock;
+
+	struct mutex track_i2c_err_lock;
+	u32 debug_force_i2c_err;
+	bool i2c_err_uploading;
+	oplus_chg_track_trigger *i2c_err_load_trigger;
+	struct delayed_work i2c_err_load_trigger_work;
+
+	struct mutex track_cp_err_lock;
+	u32 debug_force_cp_err;
+	bool cp_err_uploading;
+	oplus_chg_track_trigger *cp_err_load_trigger;
+	struct delayed_work cp_err_load_trigger_work;
 };
 
 int sc8571_master_get_ucp_flag(void);

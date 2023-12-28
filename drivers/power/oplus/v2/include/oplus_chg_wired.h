@@ -24,7 +24,4 @@ enum oplus_wired_vbus_vol {
 	OPLUS_VBUS_MAX,
 };
 
-const char *oplus_wired_get_chg_type_str(enum oplus_chg_usb_type);
-const char *oplus_wired_get_chg_mode_region_str(enum oplus_wired_charge_mode);
-
 #endif /* __OPLUS_CHG_WIRED_H__ */

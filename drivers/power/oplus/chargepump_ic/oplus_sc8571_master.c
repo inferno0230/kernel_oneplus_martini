@@ -39,34 +39,15 @@
 static struct chip_sc8571 *chip_sc8571_master = NULL;
 
 static struct mutex i2c_rw_lock;
-static bool error_reported = false;
-extern void oplus_chg_sc8571_error(int report_flag, int *buf, int ret);
 int sc8571_master_dump_registers(void);
 
 bool sc8571_master_get_enable(void);
+static int sc8571_track_upload_i2c_err_info(
+	struct chip_sc8571 *chip, int err_type, u8 reg);
+static int sc8571_track_upload_cp_err_info(
+	struct chip_sc8571 *chip, int err_type);
 
 /************************************************************************/
-static void sc8571_i2c_error(bool happen)
-{
-	int report_flag = 0;
-	struct oplus_pps_chip *chip = oplus_pps_get_pps_chip();
-	if (!chip)
-		return;
-
-	if (error_reported)
-		return;
-
-	if (happen) {
-		chip->cp.iic_err = 1;
-		chip->cp.iic_err_num++;
-		report_flag |= (1 << PPS_REPORT_ERROR_MASTER_I2C);
-		oplus_chg_sc8571_error(report_flag, NULL, 0);
-		if (chip->cp.iic_err_num >= 10) {
-			error_reported = true;
-		}
-	}
-}
-
 static int __sc8571_read_byte(u8 reg, u8 *data)
 {
 	int ret = 0;
@@ -79,7 +60,6 @@ static int __sc8571_read_byte(u8 reg, u8 *data)
 	}
 	ret = i2c_smbus_read_byte_data(chip->master_client, reg);
 	if (ret < 0) {
-		sc8571_i2c_error(true);
 		pps_err("i2c read fail: can't read from reg 0x%02X\n", reg);
 		oplus_pps_notify_master_cp_error();
 		while(retry > 0) {
@@ -91,14 +71,18 @@ static int __sc8571_read_byte(u8 reg, u8 *data)
 				break;
 			}
 		}
+		if (ret < 0)
+			sc8571_track_upload_i2c_err_info(chip, ret, reg);
 	}
 
 	*data = (u8)ret;
+	if (chip->debug_force_i2c_err)
+		sc8571_track_upload_i2c_err_info(chip, ret, reg);
 
 	return 0;
 }
 
-static int __sc8571_write_byte(int reg, u8 val)
+static int __sc8571_write_byte(u8 reg, u8 val)
 {
 	int ret = 0;
 	int retry = 3;
@@ -112,7 +96,6 @@ static int __sc8571_write_byte(int reg, u8 val)
 	ret = i2c_smbus_write_byte_data(chip->master_client, reg, val);
 
 	if (ret < 0) {
-		sc8571_i2c_error(true);
 		pps_err("i2c write fail: can't write 0x%02X to reg 0x%02X: %d\n",
 			val, reg, ret);
 		oplus_pps_notify_master_cp_error();
@@ -125,7 +108,11 @@ static int __sc8571_write_byte(int reg, u8 val)
 				break;
 			}
 		}
+		if (ret < 0)
+			sc8571_track_upload_i2c_err_info(chip, ret, reg);
 	}
+	if (chip->debug_force_i2c_err)
+		sc8571_track_upload_i2c_err_info(chip, ret, reg);
 
 	return ret;
 }
@@ -166,7 +153,6 @@ static int sc8571_read_word(u8 reg, u8 *data_block)
 	ret = i2c_smbus_read_i2c_block_data(chip->master_client, reg, 2,
 					    data_block);
 	if (ret < 0) {
-		sc8571_i2c_error(true);
 		pps_err("i2c read word fail: can't read reg:0x%02X \n", reg);
 		oplus_pps_notify_master_cp_error();
 		while(retry > 0) {
@@ -179,7 +165,11 @@ static int sc8571_read_word(u8 reg, u8 *data_block)
 				break;
 			}
 		}
+		if (ret < 0)
+			sc8571_track_upload_i2c_err_info(chip, ret, reg);
 	}
+	if (chip->debug_force_i2c_err)
+		sc8571_track_upload_i2c_err_info(chip, ret, reg);
 	mutex_unlock(&i2c_rw_lock);
 	return ret;
 }
@@ -205,6 +195,301 @@ static int sc8571_master_i2c_masked_write(u8 reg, u8 mask, u8 val)
 out:
 	mutex_unlock(&i2c_rw_lock);
 	return ret;
+}
+
+#define TRACK_LOCAL_T_NS_TO_S_THD		1000000000
+#define TRACK_UPLOAD_COUNT_MAX		10
+#define TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD	(24 * 3600)
+static int sc8571_track_get_local_time_s(void)
+{
+	int local_time_s;
+
+	local_time_s = local_clock() / TRACK_LOCAL_T_NS_TO_S_THD;
+	pr_info("local_time_s:%d\n", local_time_s);
+
+	return local_time_s;
+}
+
+static int sc8571_track_upload_i2c_err_info(
+	struct chip_sc8571 *chip, int err_type, u8 reg)
+{
+	int index = 0;
+	int curr_time;
+	static int upload_count = 0;
+	static int pre_upload_time = 0;
+
+	if (!chip)
+		return -EINVAL;
+
+	mutex_lock(&chip->track_upload_lock);
+	memset(chip->chg_power_info, 0, sizeof(chip->chg_power_info));
+	memset(chip->err_reason, 0, sizeof(chip->err_reason));
+	curr_time = sc8571_track_get_local_time_s();
+	if (curr_time - pre_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
+		upload_count = 0;
+
+	if (upload_count > TRACK_UPLOAD_COUNT_MAX) {
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	if (chip->debug_force_i2c_err) {
+		err_type = -chip->debug_force_i2c_err;
+		chip->debug_force_i2c_err = false;
+	}
+
+	mutex_lock(&chip->track_i2c_err_lock);
+	if (chip->i2c_err_uploading) {
+		pr_info("i2c_err_uploading, should return\n");
+		mutex_unlock(&chip->track_i2c_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	if (chip->i2c_err_load_trigger)
+		kfree(chip->i2c_err_load_trigger);
+	chip->i2c_err_load_trigger = kzalloc(sizeof(oplus_chg_track_trigger), GFP_KERNEL);
+	if (!chip->i2c_err_load_trigger) {
+		pr_err("i2c_err_load_trigger memery alloc fail\n");
+		mutex_unlock(&chip->track_i2c_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return -ENOMEM;
+	}
+	chip->i2c_err_load_trigger->type_reason =
+		TRACK_NOTIFY_TYPE_DEVICE_ABNORMAL;
+	chip->i2c_err_load_trigger->flag_reason =
+		TRACK_NOTIFY_FLAG_CP_ABNORMAL;
+	chip->i2c_err_uploading = true;
+	upload_count++;
+	pre_upload_time = sc8571_track_get_local_time_s();
+	mutex_unlock(&chip->track_i2c_err_lock);
+
+	index += snprintf(
+		&(chip->i2c_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$device_id@@%s",
+		"sc8571");
+	index += snprintf(
+		&(chip->i2c_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$err_scene@@%s",
+		OPLUS_CHG_TRACK_SCENE_I2C_ERR);
+
+	oplus_chg_track_get_i2c_err_reason(err_type, chip->err_reason, sizeof(chip->err_reason));
+	index += snprintf(
+		&(chip->i2c_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+		"$$err_reason@@%s", chip->err_reason);
+
+	oplus_chg_track_obtain_power_info(chip->chg_power_info, sizeof(chip->chg_power_info));
+	index += snprintf(&(chip->i2c_err_load_trigger->crux_info[index]),
+			OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "%s", chip->chg_power_info);
+	index += snprintf(&(chip->i2c_err_load_trigger->crux_info[index]),
+			OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			"$$access_reg@@0x%02x", reg);
+	schedule_delayed_work(&chip->i2c_err_load_trigger_work, 0);
+	mutex_unlock(&chip->track_upload_lock);
+	pr_info("success\n");
+
+	return 0;
+}
+
+static void sc8571_track_i2c_err_load_trigger_work(
+	struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct chip_sc8571 *chip =
+		container_of(dwork, struct chip_sc8571,
+			i2c_err_load_trigger_work);
+
+	if (!chip->i2c_err_load_trigger)
+		return;
+
+	oplus_chg_track_upload_trigger_data(*(chip->i2c_err_load_trigger));
+	kfree(chip->i2c_err_load_trigger);
+	chip->i2c_err_load_trigger = NULL;
+	chip->i2c_err_uploading = false;
+}
+
+static int sc8571_dump_reg_info(
+	struct chip_sc8571 *chip, char *dump_info, int len)
+{
+	int index = 0;
+	u8 addr;
+	struct oplus_pps_chip *pps_chip = oplus_pps_get_pps_chip();
+	if (!pps_chip)
+		return -1;
+
+	if(!chip || !dump_info)
+		return -1;
+
+	for (addr = SC8571_REG_18; addr <= SC8571_REG_1C; addr++) {
+		index += snprintf(
+			&(dump_info[index]), len - index,
+			"0x%02x=0x%02x,", addr, pps_chip->int_column[addr - SC8571_REG_18]);
+	}
+	addr = SC8571_REG_1C - SC8571_REG_18 + 1;
+	index += snprintf(
+		&(dump_info[index]), len - index,
+		"0x%02x=0x%02x", SC8571_REG_42, pps_chip->int_column[addr]);
+
+	return 0;
+}
+
+static int sc8571_track_upload_cp_err_info(
+	struct chip_sc8571 *chip, int err_type)
+{
+	int index = 0;
+	int curr_time;
+	static int upload_count = 0;
+	static int pre_upload_time = 0;
+
+	if (!chip)
+		return -EINVAL;
+
+	mutex_lock(&chip->track_upload_lock);
+	memset(chip->chg_power_info, 0, sizeof(chip->chg_power_info));
+	memset(chip->err_reason, 0, sizeof(chip->err_reason));
+	memset(chip->dump_info, 0, sizeof(chip->dump_info));
+	curr_time = sc8571_track_get_local_time_s();
+	if (curr_time - pre_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
+		upload_count = 0;
+
+	if (err_type == TRACK_CP_ERR_DEFAULT) {
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	if (upload_count > TRACK_UPLOAD_COUNT_MAX) {
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	mutex_lock(&chip->track_cp_err_lock);
+	if (chip->cp_err_uploading) {
+		pr_info("cp_err_uploading, should return\n");
+		mutex_unlock(&chip->track_cp_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return 0;
+	}
+
+	if (chip->cp_err_load_trigger)
+		kfree(chip->cp_err_load_trigger);
+	chip->cp_err_load_trigger = kzalloc(sizeof(oplus_chg_track_trigger), GFP_KERNEL);
+	if (!chip->cp_err_load_trigger) {
+		pr_err("cp_err_load_trigger memery alloc fail\n");
+		mutex_unlock(&chip->track_cp_err_lock);
+		mutex_unlock(&chip->track_upload_lock);
+		return -ENOMEM;
+	}
+	chip->cp_err_load_trigger->type_reason =
+		TRACK_NOTIFY_TYPE_DEVICE_ABNORMAL;
+	chip->cp_err_load_trigger->flag_reason =
+		TRACK_NOTIFY_FLAG_CP_ABNORMAL;
+	chip->cp_err_uploading = true;
+	upload_count++;
+	pre_upload_time = sc8571_track_get_local_time_s();
+	mutex_unlock(&chip->track_cp_err_lock);
+
+	index += snprintf(
+		&(chip->cp_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$device_id@@%s",
+		"sc8571");
+	index += snprintf(
+		&(chip->cp_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$err_scene@@%s",
+		OPLUS_CHG_TRACK_SCENE_CP_ERR);
+
+	oplus_chg_track_get_cp_err_reason(err_type, chip->err_reason, sizeof(chip->err_reason));
+	index += snprintf(
+		&(chip->cp_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+		"$$err_reason@@%s", chip->err_reason);
+
+	oplus_chg_track_obtain_power_info(chip->chg_power_info, sizeof(chip->chg_power_info));
+	index += snprintf(&(chip->cp_err_load_trigger->crux_info[index]),
+			OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "%s", chip->chg_power_info);
+	sc8571_dump_reg_info(chip, chip->dump_info, sizeof(chip->dump_info));
+	index += snprintf(&(chip->cp_err_load_trigger->crux_info[index]),
+			OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+			"$$reg_info@@%s", chip->dump_info);
+	schedule_delayed_work(&chip->cp_err_load_trigger_work, 0);
+	mutex_unlock(&chip->track_upload_lock);
+	pr_info("upload cp error success\n");
+
+	return 0;
+}
+
+static void sc8571_track_cp_err_load_trigger_work(
+	struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct chip_sc8571 *chip =
+		container_of(
+			dwork, struct chip_sc8571,
+			cp_err_load_trigger_work);
+
+	if (!chip->cp_err_load_trigger)
+		return;
+
+	oplus_chg_track_upload_trigger_data(*(chip->cp_err_load_trigger));
+	kfree(chip->cp_err_load_trigger);
+	chip->cp_err_load_trigger = NULL;
+	chip->cp_err_uploading = false;
+}
+
+static int sc8571_track_debugfs_init(struct chip_sc8571 *chip)
+{
+	int ret = 0;
+	struct dentry *debugfs_root;
+	struct dentry *debugfs_sc8571;
+
+	debugfs_root = oplus_chg_track_get_debugfs_root();
+	if (!debugfs_root) {
+		ret = -ENOENT;
+		return ret;
+	}
+
+	debugfs_sc8571 = debugfs_create_dir("sc8571", debugfs_root);
+	if (!debugfs_sc8571) {
+		ret = -ENOENT;
+		return ret;
+	}
+
+	chip->debug_force_i2c_err = false;
+	chip->debug_force_cp_err = TRACK_CP_ERR_DEFAULT;
+	debugfs_create_u32("debug_force_i2c_err", 0644,
+	    debugfs_sc8571, &(chip->debug_force_i2c_err));
+	debugfs_create_u32("debug_force_cp_err", 0644,
+	    debugfs_sc8571, &(chip->debug_force_cp_err));
+
+	return ret;
+}
+
+static int sc8571_track_init(struct chip_sc8571 *chip)
+{
+	int rc;
+
+	if (!chip)
+		return - EINVAL;
+
+	mutex_init(&chip->track_i2c_err_lock);
+	mutex_init(&chip->track_cp_err_lock);
+	mutex_init(&chip->track_upload_lock);
+	chip->i2c_err_uploading = false;
+	chip->i2c_err_load_trigger = NULL;
+	chip->cp_err_uploading = false;
+	chip->cp_err_load_trigger = NULL;
+
+	INIT_DELAYED_WORK(&chip->i2c_err_load_trigger_work,
+				sc8571_track_i2c_err_load_trigger_work);
+	INIT_DELAYED_WORK(&chip->cp_err_load_trigger_work,
+				sc8571_track_cp_err_load_trigger_work);
+	rc = sc8571_track_debugfs_init(chip);
+	if (rc < 0) {
+		pr_err("sc8571 debugfs init error, rc=%d\n", rc);
+		return rc;
+	}
+
+	return rc;
 }
 
 int sc8571_master_get_tdie(void)
@@ -248,6 +533,57 @@ int sc8571_master_get_ucp_flag(void)
 	return ucp_fail;
 }
 
+int sc8571_match_err_value(void)
+{
+	struct oplus_pps_chip *chip = oplus_pps_get_pps_chip();
+	int err_type = TRACK_CP_ERR_DEFAULT;
+
+	if (!chip)
+		return -1;
+	if (!chip_sc8571_master)
+		return -1;
+
+	if(chip->int_column[0] & SC8571_BAT_OVP_FLAG_MASK)
+		err_type = TRACK_CP_ERR_VBAT_OVP;
+	else if (chip->int_column[0] & SC8571_OUT_OVP_FLAG_MASK)
+		err_type = TRACK_CP_ERR_VOUT_OVP;
+	else if (chip->int_column[0] & SC8571_BUS_OVP_FLAG_MASK)
+		err_type = TRACK_CP_ERR_VBUS_OVP;
+
+	if(chip->int_column[1] & SC8571_BUS_OCP_FLAG_MASK)
+		err_type = TRACK_CP_ERR_IBUS_OCP;
+	else if (chip->int_column[1] & SC8571_BUS_UCP_FALL_FLAG_MASK)
+		err_type = TRACK_CP_ERR_IBUS_UCP;
+	else if (chip->int_column[1] & SC8571_PIN_DIAG_FALL_FLAG_MASK)
+		err_type = TRACK_CP_ERR_CFLY_CDRV_FAULT;
+
+	if(chip->int_column[2] & SC8571_AC1_OVP_FLAG_MASK)
+		err_type = TRACK_CP_ERR_VAC1_OVP;
+	else if (chip->int_column[2] & SC8571_AC2_OVP_FLAG_MASK)
+		err_type = TRACK_CP_ERR_VAC2_OVP;
+
+	if(chip->int_column[3] & SC8571_SS_TIMEOUT_FLAG_MASK)
+		err_type = TRACK_CP_ERR_SS_TIMEOUT;
+	else if (chip->int_column[3] & SC8571_TSHUT_FLT_FLAG_MASK)
+		err_type = TRACK_CP_ERR_TSHUT;
+	else if (chip->int_column[3] & SC8571_WD_TIMEOUT_FLAG_MASK)
+		err_type = TRACK_CP_ERR_I2C_WDT;
+
+	if(chip->int_column[4] & SC8571_VBUS_ERR_HI_FLAG_MASK)
+		err_type = TRACK_CP_ERR_VBUS2OUT_ERRORHI;
+	else if (chip->int_column[4] & SC8571_VBUS_ERR_LO_FLAG_MASK)
+		err_type = TRACK_CP_ERR_VBUS2OUT_ERRORLO;
+
+	/* IBUS_UCP still trigger when normal plug out, so use for debug */
+	if (chip_sc8571_master->debug_force_cp_err ||
+			err_type == TRACK_CP_ERR_IBUS_UCP)
+		err_type = chip_sc8571_master->debug_force_cp_err;
+	if (err_type != TRACK_CP_ERR_DEFAULT)
+		sc8571_track_upload_cp_err_info(chip_sc8571_master, err_type);
+
+	return 0;
+}
+
 int sc8571_master_get_int_value(void)
 {
 	int ret = 0;
@@ -270,6 +606,8 @@ int sc8571_master_get_int_value(void)
 	ret = sc8571_read_byte(SC8571_REG_42, &int_column[addr]);
 	memcpy(chip->int_column, int_column, sizeof(chip->int_column));
 	oplus_pps_print_dbg_info(chip);
+
+	sc8571_match_err_value();
 	return 0;
 }
 
@@ -397,15 +735,7 @@ bool sc8571_master_get_enable(void)
 
 void sc8571_master_pmid2vout_enable(bool enable)
 {
-	return; /*return temporary*/
-	if (!chip_sc8571_master) {
-		pps_err("chip is NULL\n");
-		return;
-	}
-	if (enable == false)
-		sc8571_write_byte(SC8571_REG_41, 0x20); /*0X41 disable pmid2vout*/
-	else
-		sc8571_write_byte(SC8571_REG_41, 0x00); /*0X41 enable pmid2vout*/
+	/*do nothing now*/
 }
 
 void sc8571_master_cfg_sc(void)
@@ -819,6 +1149,7 @@ static int sc8571_master_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, chip);
 	chip_sc8571_master = chip;
+	sc8571_track_init(chip);
 	if (sc8571_master_get_hw_id() == PPS_CP_ID_BQ25980) {
 		pps_cp_id = PPS_CP_ID_BQ25980;
 		return 0;

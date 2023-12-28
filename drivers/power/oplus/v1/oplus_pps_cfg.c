@@ -12,20 +12,20 @@ static int oplus_get_strategy_data(
 	const int range_data_size = sizeof(struct batt_curve);
 	char *tmp_buf;
 	char name_buf[NAME_BUF_MAX];
-	int curv_num[BATT_CURVE_SOC_RANGE_MAX][BATT_CURVE_TEMP_RANGE_MAX];
+	int curv_num[PPS_BATT_CURVE_SOC_RANGE_MAX][PPS_BATT_CURVE_TEMP_RANGE_MAX];
 	int i, j;
 	int rc = 0;
 	int m;
 	struct batt_curve *tmp;
 
-	tmp_buf = kzalloc(BATT_CURVE_SOC_RANGE_MAX * BATT_CURVE_TEMP_RANGE_MAX * BATT_PPS_SYS_MAX * range_data_size, GFP_KERNEL);
+	tmp_buf = kzalloc(PPS_BATT_CURVE_TEMP_RANGE_MAX * PPS_BATT_CURVE_TEMP_RANGE_MAX * BATT_PPS_SYS_MAX * range_data_size, GFP_KERNEL);
 	if (!tmp_buf) {
 		pr_err("fastchg strategy alloc data buf error\n");
 		return -ENOMEM;
 	}
 
-	for (i = 0; i < BATT_CURVE_SOC_RANGE_MAX; i++) {
-		for (j = 0; j < BATT_CURVE_TEMP_RANGE_MAX; j++) {
+	for (i = 0; i < PPS_BATT_CURVE_TEMP_RANGE_MAX; i++) {
+		for (j = 0; j < PPS_BATT_CURVE_TEMP_RANGE_MAX; j++) {
 			memset(name_buf, 0, NAME_BUF_MAX);
 			snprintf(name_buf, NAME_BUF_MAX, "%s:%s:%s", name, pps_strategy_soc[i], pps_strategy_temp[j]);
 			data_head = oplus_cfg_find_param_by_name(param_head, name_buf);
@@ -42,7 +42,7 @@ static int oplus_get_strategy_data(
 			}
 			rc = oplus_cfg_get_data(
 				data_head,
-				tmp_buf + (BATT_CURVE_TEMP_RANGE_MAX * i + j) * BATT_PPS_SYS_MAX * range_data_size,
+				tmp_buf + (PPS_BATT_CURVE_TEMP_RANGE_MAX * i + j) * BATT_PPS_SYS_MAX * range_data_size,
 				data_len);
 			if (rc < 0) {
 				pr_err("get %s data buf error, rc=%d\n",
@@ -53,10 +53,10 @@ static int oplus_get_strategy_data(
 		}
 	}
 
-	for (i = 0; i < BATT_CURVE_SOC_RANGE_MAX; i++) {
-		for (j = 0; j < BATT_CURVE_TEMP_RANGE_MAX; j++) {
+	for (i = 0; i < PPS_BATT_CURVE_TEMP_RANGE_MAX; i++) {
+		for (j = 0; j < PPS_BATT_CURVE_TEMP_RANGE_MAX; j++) {
 			memcpy(metadata[i].batt_curves_temp[j].batt_curves,
-			       tmp_buf + (BATT_CURVE_TEMP_RANGE_MAX * i + j) * BATT_PPS_SYS_MAX * range_data_size,
+			       tmp_buf + (PPS_BATT_CURVE_TEMP_RANGE_MAX * i + j) * BATT_PPS_SYS_MAX * range_data_size,
 			       BATT_PPS_SYS_MAX * range_data_size);
 			metadata[i].batt_curves_temp[j].batt_curve_num = curv_num[i][j];
 

@@ -27,9 +27,13 @@
 #include "voocphy/oplus_voocphy.h"
 #include "oplus_ufcs.h"
 #include "oplus_quirks.h"
+#include "oplus_battery_log.h"
+#include "bob_ic/oplus_tps6128xd.h"
+#include "oplus_chg_exception.h"
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 #include <soc/oplus/system/oplus_project.h>
 #endif
+#include "oplus_region_check.h"
 
 #define OPLUS_SVOOC_ID_MIN    10
 
@@ -680,6 +684,8 @@ static ssize_t normal_current_now_store(struct device *dev, struct device_attrib
 		if (chip->smart_normal_cool_down == 0) {
 			if (oplus_pps_get_support_type() != PPS_SUPPORT_NOT) {
 				chip->normal_cool_down = oplus_convert_pps_current_to_level(chip, val);
+			} else if (oplus_ufcs_get_chg_status() == UFCS_CHARGERING) {
+				chip->normal_cool_down = oplus_convert_pps_current_to_level(chip, val);
 			} else {
 				chip->normal_cool_down = oplus_convert_current_to_level(chip, val);
 			}
@@ -809,8 +815,8 @@ static ssize_t mmi_charging_enable_store(struct device *dev, struct device_attri
 			ret = -EINVAL;
 			chg_err("unwakelock testing , this test not allowed.\n");
 		} else {
+			oplus_chg_track_upload_mmi_chg_info(chip, 0);
 			chip->mmi_chg = 0;
-			oplus_chg_turn_off_charging(chip);
 			if ((chip->vooc_project) && (oplus_vooc_get_fastchg_started() == true)) {
 				chip->mmi_fastchg = 0;
 			}
@@ -823,6 +829,8 @@ static ssize_t mmi_charging_enable_store(struct device *dev, struct device_attri
 					!oplus_vooc_get_fastchg_started()))
 					oplus_vooc_turn_off_fastchg();
 			}
+			/* avoid asic vooc bulk still enable after mmi_chg set 0 */
+			oplus_chg_turn_off_charging(chip);
 			if (oplus_voocphy_get_bidirect_cp_support() && chip->chg_ops->check_chrdet_status()) {
 				oplus_voocphy_set_chg_auto_mode(true);
 			}
@@ -832,6 +840,7 @@ static ssize_t mmi_charging_enable_store(struct device *dev, struct device_attri
 			ret = -EINVAL;
 			chg_err("unwakelock testing , this test not allowed.\n");
 		} else {
+			oplus_chg_track_upload_mmi_chg_info(chip, 1);
 			chip->mmi_chg = 1;
 			if (chip->mmi_fastchg == 0) {
 				oplus_chg_clear_chargerid_info();
@@ -1305,23 +1314,27 @@ static ssize_t voocchg_ing_show(struct device *dev, struct device_attribute *att
 		chg_err("chip is NULL\n");
 		return -EINVAL;
 	}
-
-	val = oplus_vooc_get_fastchg_ing();
+	if (oplus_is_ufcs_charging())
+		val = oplus_ufcs_get_ufcs_fastchg_started();
+	else if (oplus_is_pps_charging())
+		val = oplus_pps_get_pps_fastchg_started();
+	else {
+		val = oplus_vooc_get_fastchg_ing();
 #ifndef WPC_NEW_INTERFACE
-	if (!val && chip->wireless_support) {
-		val = oplus_wpc_get_fast_charging();
-	}
+		if (!val && chip->wireless_support) {
+			val = oplus_wpc_get_fast_charging();
+		}
 #else
-	if (!val && chip->wireless_support) {
-		val = oplus_wpc_get_status();
-	}
+		if (!val && chip->wireless_support) {
+			val = oplus_wpc_get_status();
+		}
 #endif
 
-	if (is_wls_ocm_available(chip) && !val) {
-		oplus_chg_mod_get_property(chip->wls_ocm, OPLUS_CHG_PROP_FASTCHG_STATUS, &pval);
-		val = pval.intval;
+		if (is_wls_ocm_available(chip) && !val) {
+			oplus_chg_mod_get_property(chip->wls_ocm, OPLUS_CHG_PROP_FASTCHG_STATUS, &pval);
+			val = pval.intval;
+		}
 	}
-
 	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR_RO(voocchg_ing);
@@ -1344,8 +1357,12 @@ static ssize_t ppschg_ing_show(struct device *dev, struct device_attribute *attr
 	if (val == 0
 		&& oplus_quirks_keep_connect_status() == 1
 		&& oplus_voocphy_get_fastchg_start() == 0) {
-		val = oplus_pps_get_last_charging_status();
+		if (oplus_pps_get_last_charging_status())
+			val = oplus_pps_get_last_charging_status();
+		else if (oplus_ufcs_get_last_charging_status())
+			val = oplus_ufcs_get_last_protocol_status();
 	}
+
 	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR_RO(ppschg_ing);
@@ -1367,12 +1384,79 @@ static ssize_t ppschg_power_show(struct device *dev, struct device_attribute *at
 
 	if (val == OPLUS_PPS_POWER_CLR
 		&& oplus_quirks_keep_connect_status() == 1
-		&& oplus_voocphy_get_fastchg_start() == 0)
-		val = oplus_pps_get_last_power();
+		&& oplus_voocphy_get_fastchg_start() == 0) {
+		if (oplus_ufcs_get_support_type() == UFCS_SUPPORT_NOT)
+			val = oplus_pps_get_last_power();
+		else
+			val = oplus_ufcs_get_last_power();
+	}
 
 	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR_RO(ppschg_power);
+
+static ssize_t ufcs_oplus_id_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+	if (oplus_is_ufcs_charging())
+		val = oplus_ufcs_check_oplus_id();
+	else
+		val = 0;
+
+	return sprintf(buf, "%d\n", val);
+}
+
+static ssize_t ufcs_oplus_id_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+	chg_err(" val = %d\n", val);
+	oplus_ufcs_set_third_id(val);
+
+	return count;
+}
+static DEVICE_ATTR_RW(ufcs_oplus_id);
+
+static ssize_t pps_third_support_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int val = 0;
+
+	val = oplus_pps_check_3rd_support();
+	val = val < 0 ? 0 : val;
+
+	return sprintf(buf, "%d\n", val);
+}
+static DEVICE_ATTR_RO(pps_third_support);
+
+static ssize_t pps_third_priority_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	int val = 0;
+
+	val = third_pps_priority_than_svooc();
+	val = val < 0 ? 0 : val;
+
+	return sprintf(buf, "%d\n", val);
+}
+static DEVICE_ATTR_RO(pps_third_priority);
+
 
 static ssize_t screen_off_by_batt_temp_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1703,6 +1787,110 @@ static ssize_t bms_heat_temp_compensation_store(struct device *dev, struct devic
 }
 static DEVICE_ATTR_RW(bms_heat_temp_compensation);
 
+static ssize_t battery_log_head_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct oplus_configfs_device *chip = dev->driver_data;
+
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (oplus_battery_log_support() != true) {
+		return -ENODEV;
+	}
+
+	return battery_log_common_operate(BATTERY_LOG_DUMP_LOG_HEAD,
+		buf, BATTERY_LOG_MAX_SIZE);
+}
+static DEVICE_ATTR_RO(battery_log_head);
+
+static ssize_t battery_log_content_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct oplus_configfs_device *chip = dev->driver_data;
+
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (oplus_battery_log_support() != true) {
+		return -ENODEV;
+	}
+
+	return battery_log_common_operate(BATTERY_LOG_DUMP_LOG_CONTENT,
+		buf, BATTERY_LOG_MAX_SIZE);
+}
+static DEVICE_ATTR_RO(battery_log_content);
+
+static ssize_t pkg_name_store(struct device *dev, struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	oplus_chg_track_set_app_info(buf);
+	return count;
+}
+static DEVICE_ATTR_WO(pkg_name);
+
+static ssize_t slow_chg_en_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	return sprintf(buf, "%d,%d,%d,%d\n", chip->slow_chg_pct, chip->slow_chg_watt, chip->slow_chg_enable,
+		       chip->slow_chg_batt_limit);
+}
+
+static ssize_t slow_chg_en_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct oplus_chg_chip *chip = NULL;
+	int pct = 0, watt = 0, en = 0;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (!buf) {
+		chg_err("buf is NULL\n");
+		return -EINVAL;
+	}
+
+	if (sscanf(buf, "%d,%d,%d", &pct, &watt, &en) != 3) {
+		chg_err("invalid buff %s\n", buf);
+		return -EINVAL;
+	}
+
+	if (pct <= 0 || pct > 100 || watt <= 0 || watt >= 0xffff) {
+		chg_err("pct %d or watt %d invalid\n", pct, watt);
+		return -EINVAL;
+	}
+	oplus_chg_track_upload_slow_chg_info(chip, pct, watt, en);
+	mutex_lock(&chip->slow_chg_mutex);
+	chip->slow_chg_pct = pct;
+	chip->slow_chg_watt = watt;
+	chip->slow_chg_enable = (bool)!!en;
+	mutex_unlock(&chip->slow_chg_mutex);
+	chg_info("%d %d %d\n", chip->slow_chg_pct, chip->slow_chg_watt, chip->slow_chg_enable);
+	return count;
+}
+static DEVICE_ATTR_RW(slow_chg_en);
+
 static struct device_attribute *oplus_battery_attributes[] = {
 	&dev_attr_authenticate,
 	&dev_attr_battery_cc,
@@ -1756,6 +1944,9 @@ static struct device_attribute *oplus_battery_attributes[] = {
 	&dev_attr_voocchg_ing,
 	&dev_attr_ppschg_ing,
 	&dev_attr_ppschg_power,
+	&dev_attr_ufcs_oplus_id,
+	&dev_attr_pps_third_support,
+	&dev_attr_pps_third_priority,
 	&dev_attr_screen_off_by_batt_temp,
 	&dev_attr_bcc_parms,
 	&dev_attr_bcc_current,
@@ -1772,6 +1963,10 @@ static struct device_attribute *oplus_battery_attributes[] = {
 	&dev_attr_aging_ffc_data,
 	&dev_attr_battery_charging_state,
 	&dev_attr_bms_heat_temp_compensation,
+	&dev_attr_battery_log_head,
+	&dev_attr_battery_log_content,
+	&dev_attr_pkg_name,
+	&dev_attr_slow_chg_en,
 	NULL
 };
 
@@ -2174,6 +2369,253 @@ static ssize_t boot_completed_show(struct device *dev, struct device_attribute *
 }
 static DEVICE_ATTR_RO(boot_completed);
 
+static ssize_t chg_olc_config_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	oplus_chg_olc_config_set(buf);
+	return count;
+}
+
+static ssize_t chg_olc_config_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct oplus_chg_chip *chip = NULL;
+	int len = 0;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	len = oplus_chg_olc_config_get(buf);
+	return len;
+}
+static DEVICE_ATTR_RW(chg_olc_config);
+
+static ssize_t battlog_push_config_store(struct device *dev,
+			       struct device_attribute *attr, const char *buf,
+			       size_t count)
+{
+	char buffer[2] = { 0 };
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+	int rc = 0;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (count < 0 || count > sizeof(buffer) - 1) {
+		chg_err("%s: count[%zu] -EFAULT.\n", __func__, count);
+		return -EFAULT;
+	}
+
+	if (copy_from_user(buffer, buf, count)) {
+		chg_err("%s:  error.\n", __func__);
+		return -EFAULT;
+	}
+	buffer[count] = '\0';
+
+	if (kstrtos32(buffer, 0, &val)) {
+		chg_err("buffer error\n");
+		return -EINVAL;
+	}
+
+	if (!!val) {
+		rc = oplus_chg_batterylog_exception_push();
+		if (rc < 0)
+			chg_err("push batterylog failed, rc=%d\n", rc);
+		else
+			chg_info("push batterylog successed\n");
+	}
+
+	return (rc < 0) ? rc : count;
+}
+static DEVICE_ATTR_WO(battlog_push_config);
+
+static ssize_t super_endurance_mode_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	return sprintf(buf, "%d\n", chip->super_endurance_mode_status);
+}
+
+static ssize_t super_endurance_mode_status_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+
+	chip->super_endurance_mode_status = val;
+
+	return count;
+}
+static DEVICE_ATTR_RW(super_endurance_mode_status);
+
+static ssize_t super_endurance_mode_count_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	return sprintf(buf, "%d\n", chip->super_endurance_mode_count);
+}
+
+static ssize_t super_endurance_mode_count_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+
+	chip->super_endurance_mode_count = val;
+
+	return count;
+}
+static DEVICE_ATTR_RW(super_endurance_mode_count);
+
+static ssize_t bob_status_reg_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct oplus_chg_chip *chip = NULL;
+	int ret = 0;
+	int status_reg = 0;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (chip->support_super_endurance_mode)
+		ret = tps6128xd_get_status_reg();
+	if (ret < 0)
+		return ret;
+
+	status_reg = ret;
+
+	return sprintf(buf, "%d\n", status_reg);
+}
+static DEVICE_ATTR_RO(bob_status_reg);
+
+static ssize_t bob_status_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct oplus_chg_chip *chip = NULL;
+	int val = 0;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+	if (chip->support_super_endurance_mode)
+		val = tps6128xd_get_status();
+
+	return sprintf(buf, "%d\n", val);
+}
+
+static ssize_t bob_status_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+
+	if (chip->support_super_endurance_mode)
+		tps6128xd_set_high_batt_vol(val);
+
+	return count;
+}
+static DEVICE_ATTR_RW(bob_status);
+
+static ssize_t time_zone_show(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	return sprintf(buf, "%d\n", chip->track_gmtoff);
+}
+
+static ssize_t time_zone_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_common_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+
+	chip->track_gmtoff = val;
+
+	return count;
+}
+static DEVICE_ATTR_RW(time_zone);
+
 static struct device_attribute *oplus_common_attributes[] = {
 #ifdef OPLUS_CHG_ADB_ROOT_ENABLE
 	&dev_attr_charge_parameter,
@@ -2181,6 +2623,13 @@ static struct device_attribute *oplus_common_attributes[] = {
 	&dev_attr_mutual_cmd,
 	&dev_attr_track_hidl,
 	&dev_attr_boot_completed,
+	&dev_attr_chg_olc_config,
+	&dev_attr_super_endurance_mode_status,
+	&dev_attr_super_endurance_mode_count,
+	&dev_attr_bob_status_reg,
+	&dev_attr_bob_status,
+	&dev_attr_time_zone,
+	&dev_attr_battlog_push_config,
 	NULL
 };
 #ifdef OPLUS_FEATURE_CHG_BASIC

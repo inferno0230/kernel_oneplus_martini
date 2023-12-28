@@ -635,6 +635,7 @@ struct chip_mp2650 {
         struct pinctrl_state    *mps_otg_en_sleep;
         struct pinctrl_state    *mps_otg_en_default;
 	atomic_t		charger_suspended;
+	struct completion 	resume_ack;
         bool                    probe_flag;
 
 	struct mutex track_upload_lock;

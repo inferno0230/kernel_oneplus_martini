@@ -73,6 +73,7 @@
 #include "oplus_bq27541.h"
 #include "../oplus_debug_info.h"
 #include "../oplus_pps.h"
+#include "../oplus_ufcs.h"
 #include "oplus_sh366002.h"
 
 #define GAUGE_ERROR -1
@@ -2227,9 +2228,10 @@ static int bq28z610_get_balancing_config(struct chip_bq27541 *chip)
 				dev_err(chip->dev, "error reading operation status.\n");
 				return chip->pre_balancing_config;
 			}
-			balancing_config = ((data[3] << 24 | data[2] << 16 | data[1] << 8 | data[0]) &
-					    BQ28Z610_BALANCING_CONFIG_BIT) >>
-					   28;
+			balancing_config =
+				(u32)(((u32)data[3] << 24 | (u32)data[2] << 16 | (u32)data[1] << 8 | data[0]) &
+				      BQ28Z610_BALANCING_CONFIG_BIT) >>
+				28;
 			chip->pre_balancing_count++;
 			if (balancing_config ^ chip->pre_balancing_config || chip->pre_balancing_count >= 10) {
 				chip->pre_balancing_count = 0;
@@ -3064,7 +3066,7 @@ static bool bq27541_get_battery_hmac(void)
 		get_smem_batt_info(&auth_data, 1);
 		if (init_gauge_auth(&auth_data, gauge_ic->authenticate_data))
 			return true;
-		pr_info("%s:gauge authenticate failed, try again\n");
+		pr_info("%s:gauge authenticate failed, try again\n", __func__);
 		get_smem_batt_info(&auth_data, 0);
 		return init_gauge_auth(&auth_data, gauge_ic->authenticate_data);
 	} else if (gauge_ic->sha1_key_index == ZY0602_KEY_INDEX) {
@@ -3136,6 +3138,14 @@ static int bq27541_get_prev_battery_mvolts(void)
 		return 0;
 	}
 	return gauge_ic->batt_vol_pre;
+}
+
+static int bq27541_get_sub_prev_battery_mvolts(void)
+{
+	if (!sub_gauge_ic) {
+		return 0;
+	}
+	return sub_gauge_ic->batt_vol_pre;
 }
 
 static int bq27541_get_prev_battery_mvolts_2cell_max(void)
@@ -3402,6 +3412,10 @@ static void bq28z610_bcc_set_buffer(int *buffer)
 		bcc_current_max = oplus_pps_get_bcc_max_curr();
 		bcc_current_min = oplus_pps_get_bcc_min_curr();
 		atl_last_gear_current = oplus_pps_get_bcc_exit_curr();
+	} else if (oplus_is_ufcs_charging()) {
+		bcc_current_max = oplus_ufcs_get_bcc_max_curr();
+		bcc_current_min = oplus_ufcs_get_bcc_min_curr();
+		atl_last_gear_current = oplus_ufcs_get_bcc_exit_curr();
 	} else if (true == oplus_is_voocphy_charging()) {
 		bcc_current_max = oplus_voocphy_get_bcc_max_curr();
 		bcc_current_min = oplus_voocphy_get_bcc_min_curr();
@@ -3524,7 +3538,9 @@ static int bq28z610_get_battery_bcc_parameters(char *buf)
 
 	if ((oplus_vooc_get_fastchg_ing() && oplus_vooc_get_fast_chg_type() != CHARGER_SUBTYPE_FASTCHG_VOOC &&
 	     !oplus_vooc_get_fastchg_dummy_started()) ||
-	    oplus_pps_get_pps_fastchg_started() || (true == oplus_voocphy_get_fastchg_ing())) {
+	    oplus_pps_get_pps_fastchg_started() ||
+	    oplus_ufcs_get_ufcs_fastchg_started() ||
+	    (true == oplus_voocphy_get_fastchg_ing())) {
 		buffer[15] = 1;
 	} else {
 		buffer[15] = 0;
@@ -3538,6 +3554,13 @@ static int bq28z610_get_battery_bcc_parameters(char *buf)
 
 	if (oplus_pps_get_pps_fastchg_started()) {
 		if (oplus_pps_bcc_get_temp_range() == false) {
+			buffer[9] = 0;
+			buffer[10] = 0;
+			buffer[14] = 0;
+			buffer[15] = 0;
+		}
+	} else if (oplus_ufcs_get_ufcs_fastchg_started()) {
+		if (oplus_ufcs_bcc_get_temp_range() == false) {
 			buffer[9] = 0;
 			buffer[10] = 0;
 			buffer[14] = 0;
@@ -3564,11 +3587,12 @@ static int bq28z610_get_battery_bcc_parameters(char *buf)
 	       "%s : ----dod0_1[%d], dod0_2[%d], dod0_passed_q[%d], qmax_1[%d], qmax_2[%d], qmax_passed_q[%d] \
 		voltage_cell1[%d], temperature[%d], batt_current[%d], max_current[%d], min_current[%d], voltage_cell2[%d], \
 		soc_ext_1[%d], soc_ext_2[%d], atl_last_geat_current[%d], charging_flag[%d], bcc_curr_done[%d], is_zy0603[%d], batt_type[%d], \
-		bcc_judge buf:%d, %d, %d, %d, %d, %d, %d, %d\n", __func__, buffer[0], buffer[1], buffer[2], buffer[3], buffer[4],
+		bcc_judge buf:%d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n", __func__, buffer[0], buffer[1], buffer[2], buffer[3], buffer[4],
 		buffer[5], buffer[6], buffer[7], buffer[8], buffer[9], buffer[10], buffer[11], buffer[12], buffer[13],
 		buffer[14], buffer[15], buffer[16], buffer[17], buffer[18], oplus_vooc_get_fastchg_ing(),
 		(oplus_vooc_get_fast_chg_type() != CHARGER_SUBTYPE_FASTCHG_VOOC), (!oplus_vooc_get_fastchg_dummy_started()),
 		oplus_vooc_bcc_get_temp_range(), oplus_pps_get_pps_fastchg_started(), oplus_pps_bcc_get_temp_range(),
+		oplus_ufcs_get_ufcs_fastchg_started(), oplus_ufcs_bcc_get_temp_range(),
 		oplus_voocphy_get_fastchg_ing(), oplus_voocphy_bcc_get_temp_range());
 
 	for (i = 0; i < BCC_PARMS_COUNT - 1; i++) {
@@ -3602,7 +3626,9 @@ static int bq28z610_get_fastchg_battery_bcc_parameters(char *buf)
 
 	if ((oplus_vooc_get_fastchg_ing() && oplus_vooc_get_fast_chg_type() != CHARGER_SUBTYPE_FASTCHG_VOOC &&
 	     !oplus_vooc_get_fastchg_dummy_started()) ||
-	    oplus_pps_get_pps_fastchg_started() || (true == oplus_voocphy_get_fastchg_ing())) {
+	    oplus_pps_get_pps_fastchg_started() ||
+	    oplus_ufcs_get_ufcs_fastchg_started() ||
+	    (true == oplus_voocphy_get_fastchg_ing())) {
 		buffer[15] = 1;
 	} else {
 		buffer[15] = 0;
@@ -3616,6 +3642,13 @@ static int bq28z610_get_fastchg_battery_bcc_parameters(char *buf)
 
 	if (oplus_pps_get_pps_fastchg_started()) {
 		if (oplus_pps_bcc_get_temp_range() == false) {
+			buffer[9] = 0;
+			buffer[10] = 0;
+			buffer[14] = 0;
+			buffer[15] = 0;
+		}
+	} else if (oplus_ufcs_get_ufcs_fastchg_started()) {
+		if (oplus_ufcs_bcc_get_temp_range() == false) {
 			buffer[9] = 0;
 			buffer[10] = 0;
 			buffer[14] = 0;
@@ -3641,11 +3674,12 @@ static int bq28z610_get_fastchg_battery_bcc_parameters(char *buf)
 	       "%s : ----dod0_1[%d], dod0_2[%d], dod0_passed_q[%d], qmax_1[%d], qmax_2[%d], qmax_passed_q[%d] \
 		voltage_cell1[%d], temperature[%d], batt_current[%d], max_current[%d], min_current[%d], voltage_cell2[%d], \
 		soc_ext_1[%d], soc_ext_2[%d], atl_last_geat_current[%d], charging_flag[%d], bcc_curr_done[%d], is_zy0603[%d], batt_type[%d], \
-		bcc_judge buf:%d, %d, %d, %d, %d, %d, %d, %d\n", __func__, buffer[0], buffer[1], buffer[2], buffer[3], buffer[4],
+		bcc_judge buf:%d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n", __func__, buffer[0], buffer[1], buffer[2], buffer[3], buffer[4],
 		buffer[5], buffer[6], buffer[7], buffer[8], buffer[9], buffer[10], buffer[11], buffer[12], buffer[13],
 		buffer[14], buffer[15], buffer[16], buffer[17], buffer[18], oplus_vooc_get_fastchg_ing(),
 		(oplus_vooc_get_fast_chg_type() != CHARGER_SUBTYPE_FASTCHG_VOOC), (!oplus_vooc_get_fastchg_dummy_started()),
 		oplus_vooc_bcc_get_temp_range(), oplus_pps_get_pps_fastchg_started(), oplus_pps_bcc_get_temp_range(),
+		oplus_ufcs_get_ufcs_fastchg_started(), oplus_ufcs_bcc_get_temp_range(),
 		oplus_voocphy_get_fastchg_ing(), oplus_voocphy_bcc_get_temp_range());
 
 	bq28z610_bcc_pre_calibration(buffer);
@@ -3670,6 +3704,9 @@ static int bq28z610_get_prev_battery_bcc_parameters(char *buf)
 	if (oplus_is_pps_charging()) {
 		buffer[9] = oplus_pps_get_bcc_max_curr();
 		buffer[10] = oplus_pps_get_bcc_min_curr();
+	} else if (oplus_is_ufcs_charging()) {
+		buffer[9] = oplus_ufcs_get_bcc_max_curr();
+		buffer[10] = oplus_ufcs_get_bcc_min_curr();
 	} else if (true == oplus_is_voocphy_charging()) {
 		buffer[9] = oplus_voocphy_get_bcc_max_curr();
 		buffer[10] = oplus_voocphy_get_bcc_min_curr();
@@ -3679,7 +3716,9 @@ static int bq28z610_get_prev_battery_bcc_parameters(char *buf)
 	}
 
 	if ((oplus_vooc_get_fastchg_ing() && oplus_vooc_get_fast_chg_type() != CHARGER_SUBTYPE_FASTCHG_VOOC) ||
-	    oplus_pps_get_pps_fastchg_started() || (true == oplus_voocphy_get_fastchg_ing())) {
+	    oplus_pps_get_pps_fastchg_started() ||
+	    oplus_ufcs_get_ufcs_fastchg_started() ||
+	    (true == oplus_voocphy_get_fastchg_ing())) {
 		buffer[15] = 1;
 	} else {
 		buffer[15] = 0;
@@ -3693,6 +3732,13 @@ static int bq28z610_get_prev_battery_bcc_parameters(char *buf)
 
 	if (oplus_pps_get_pps_fastchg_started()) {
 		if (oplus_pps_bcc_get_temp_range() == false) {
+			buffer[9] = 0;
+			buffer[10] = 0;
+			buffer[14] = 0;
+			buffer[15] = 0;
+		}
+	} else if (oplus_ufcs_get_ufcs_fastchg_started()) {
+		if (oplus_ufcs_bcc_get_temp_range() == false) {
 			buffer[9] = 0;
 			buffer[10] = 0;
 			buffer[14] = 0;
@@ -3714,11 +3760,12 @@ static int bq28z610_get_prev_battery_bcc_parameters(char *buf)
 		}
 	}
 
-	chg_err(KERN_ERR "%s bcc_voocphy buf:%d,%d,%d,%d,%d,%d,%d,%d\n", __func__, oplus_vooc_get_fastchg_ing(),
+	chg_err(KERN_ERR "%s bcc_voocphy buf:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", __func__, oplus_vooc_get_fastchg_ing(),
 		(oplus_vooc_get_fast_chg_type() != CHARGER_SUBTYPE_FASTCHG_VOOC),
 		(!oplus_vooc_get_fastchg_dummy_started()), oplus_vooc_bcc_get_temp_range(),
-		oplus_pps_get_pps_fastchg_started(), oplus_pps_bcc_get_temp_range(), oplus_voocphy_get_fastchg_ing(),
-		oplus_voocphy_bcc_get_temp_range());
+		oplus_pps_get_pps_fastchg_started(), oplus_pps_bcc_get_temp_range(),
+		oplus_ufcs_get_ufcs_fastchg_started(), oplus_ufcs_bcc_get_temp_range(),
+		oplus_voocphy_get_fastchg_ing(), oplus_voocphy_bcc_get_temp_range());
 
 	for (i = 0; i < BCC_PARMS_COUNT - 1; i++) {
 		len = snprintf(tmpbuf, BCC_PAGE_SIZE - idx, "%d,", buffer[i]);
@@ -3764,8 +3811,8 @@ static int bq28z610_set_bcc_debug_parameters(const char *buf)
 			printk(KERN_ERR "%s BCC_N_DEBUG:%d\n", __func__, bcc_debug_mode);
 		}
 		if (strlen(buf) > BUFFER_OFFSET_ADDRESS) {
-			strncpy(bcc_debug_buf, buf + BUFFER_OFFSET_ADDRESS, BCC_PAGE_SIZE);
-			printk(KERN_ERR "%s bcc_debug_buf:%s, temp_buf\n", __func__, bcc_debug_buf, temp_buf);
+			strncpy(bcc_debug_buf, buf + BUFFER_OFFSET_ADDRESS, BCC_PAGE_SIZE - BUFFER_OFFSET_ADDRESS);
+			printk(KERN_ERR "%s bcc_debug_buf:%s, temp_buf:%s\n", __func__, bcc_debug_buf, temp_buf);
 		}
 		return ret;
 	}
@@ -3851,6 +3898,7 @@ static struct oplus_gauge_operations bq27541_gauge_ops = {
 
 static struct oplus_gauge_operations bq27541_sub_gauge_ops = {
 	.get_battery_mvolts = bq27541_get_sub_battery_mvolts,
+	.get_prev_battery_mvolts = bq27541_get_sub_prev_battery_mvolts,
 	.get_battery_qm = bq27541_get_sub_battery_qm,
 	.get_battery_do0 = bq27541_get_sub_battery_do0,
 	.get_battery_temperature = bq27541_get_sub_battery_temperature,
@@ -4084,6 +4132,7 @@ static void bq27541_parse_dt(struct chip_bq27541 *chip)
 	chip->modify_soc_calibration = of_property_read_bool(node, "qcom,modify-soc-calibration");
 	chip->batt_bq28z610 = of_property_read_bool(node, "qcom,batt_bq28z610");
 	chip->bq28z610_need_balancing = of_property_read_bool(node, "qcom,bq28z610_need_balancing");
+	chip->enable_sleep_mode = of_property_read_bool(node, "oplus,enable_sleep_mode");
 
 	/* only for wite battery full param in guage dirver probe on 7250 platform */
 	chip->battery_full_param = of_property_read_bool(node, "qcom,battery-full-param");
@@ -4905,7 +4954,7 @@ static int bq27441_battery_full_sleep_mode_cmd(struct chip_bq27541 *chip, bool e
 			pr_err("%s write {0xFF,0x55} --> 0x40\n", __func__);
 			usleep_range(500000, 500000);
 		}
-	} else if (opchg_get_shipmode_value() == 1) {
+	} else if (chip->enable_sleep_mode || opchg_get_shipmode_value() == 1) {
 		if (read_buf[1] != 0x31) {
 			bq27541_write_i2c_block(chip, 0x40, 10, CNTL1_VAL_3);
 			usleep_range(5000, 5000);
@@ -5025,8 +5074,12 @@ static int bq27411_modify_soc_smooth_parameter(struct chip_bq27541 *chip, bool i
 
 	if (chip->device_type == DEVICE_ZY0602) {
 		pr_err("%s  DEVICE_ZY0602 begin\n", __func__);
-		pr_err("%s  device_type = %d\n", __func__, chip->device_type);
-		bq27411_write_soc_smooth_parameter_for_zy(chip, is_powerup);
+		pr_err("%s  device_type = %d enable_sleep_mode=%d\n", __func__,
+			chip->device_type, chip->enable_sleep_mode);
+		if (chip->enable_sleep_mode)
+			bq27411_write_soc_smooth_parameter_for_zy(chip, false);
+		else
+			bq27411_write_soc_smooth_parameter_for_zy(chip, is_powerup);
 		return GAUGE_OK;
 	}
 
@@ -5995,7 +6048,12 @@ static void bq27541_reset(struct i2c_client *client_chip)
 {
 	int ui_soc = oplus_chg_get_ui_soc();
 	struct chip_bq27541 *bq27541_chip = i2c_get_clientdata(client_chip);
-	struct oplus_gauge_chip *gauge_chip = bq27541_chip->oplus_gauge;
+	struct oplus_gauge_chip *gauge_chip;
+
+	if (IS_ERR_OR_NULL(bq27541_chip))
+		return;
+
+	gauge_chip = bq27541_chip->oplus_gauge;
 
 	if (bq27541_chip->batt_zy0603) {
 		return;
@@ -6022,7 +6080,7 @@ static void bq27541_reset(struct i2c_client *client_chip)
 		}
 		msleep(150);
 		chg_debug("bq27541_reset, point = %d\r\n", gauge_chip->gauge_ops->get_battery_soc());
-	} else if (bq27541_chip) {
+	} else {
 		bq27411_modify_soc_smooth_parameter(bq27541_chip, false);
 	}
 }

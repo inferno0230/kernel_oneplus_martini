@@ -122,6 +122,8 @@ static void oplus_otg_status_check_work(struct work_struct *work);
 extern int oplus_chg_get_curr_time_ms(unsigned long *time_ms);
 static int oplus_chg_track_upload_icl_err_info(
 	struct battery_chg_dev *bcdev, int err_type);
+static int oplus_chg_track_upload_adsp_err_info(
+	struct battery_chg_dev *bcdev, int err_type);
 
 //extern void oplus_usb_set_none_role(void);
 #if defined(OPLUS_FEATURE_POWERINFO_FTM) && defined(CONFIG_OPLUS_POWERINFO_FTM)
@@ -129,8 +131,6 @@ extern bool ext_boot_with_console(void);
 #endif
 static int smbchg_get_charge_enable(void);
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
-
-extern void oplus_chg_sc8571_error(int report_flag, int *buf, int ret);
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 /*for p922x compile*/
@@ -269,6 +269,8 @@ static int oem_battery_chg_write(struct battery_chg_dev *bcdev, void *data,
 			msecs_to_jiffies(OEM_READ_WAIT_TIME_MS));
 		if (!rc) {
 			pr_err("Error, timed out sending message\n");
+			oplus_chg_track_upload_adsp_err_info(
+				bcdev, TRACK_ADSP_ERR_OEM_GLINK_ABNORMAL);
 			mutex_unlock(&bcdev->read_buffer_lock);
 			return -ETIMEDOUT;
 		}
@@ -304,7 +306,7 @@ static void handle_oem_read_buffer(struct battery_chg_dev *bcdev,
 		sizeof(bcdev->read_buffer_dump));*/
 
 	if (len > sizeof(bcdev->read_buffer_dump)) {
-		pr_err("Incorrect length received: %zu expected: %u\n", len,
+		pr_err("Incorrect length received: %zu expected: %zu\n", len,
 		sizeof(bcdev->read_buffer_dump));
 		return;
 	}
@@ -351,6 +353,8 @@ static int bcc_battery_chg_write(struct battery_chg_dev *bcdev, void *data,
 			msecs_to_jiffies(OEM_READ_WAIT_TIME_MS));
 		if (!rc) {
 			pr_err("Error, timed out sending message\n");
+			oplus_chg_track_upload_adsp_err_info(
+				bcdev, TRACK_ADSP_ERR_BCC_GLINK_ABNORMAL);
 			mutex_unlock(&bcdev->bcc_read_buffer_lock);
 			return -ETIMEDOUT;
 		}
@@ -386,7 +390,7 @@ static void handle_bcc_read_buffer(struct battery_chg_dev *bcdev,
 		sizeof(bcdev->read_buffer_dump));*/
 
 	if (len > sizeof(bcdev->bcc_read_buffer_dump)) {
-		pr_err("Incorrect length received: %zu expected: %u\n", len,
+		pr_err("Incorrect length received: %zu expected: %zu\n", len,
 		sizeof(bcdev->bcc_read_buffer_dump));
 		complete(&bcdev->bcc_read_ack);
 		return;
@@ -504,7 +508,7 @@ static void handle_adsp_track_read_buffer(
 	u32 buf_len;
 
 	if (len > sizeof(bcdev->adsp_track_read_buffer)) {
-		pr_err("Incorrect length received: %zu expected: %u\n", len,
+		pr_err("Incorrect length received: %zu expected: %lu\n", len,
 		sizeof(bcdev->adsp_track_read_buffer));
 		return;
 	}
@@ -553,6 +557,8 @@ static int pps_battery_chg_write(struct battery_chg_dev *bcdev, void *data,
 			msecs_to_jiffies(OEM_READ_WAIT_TIME_MS));
 		if (!rc) {
 			chg_err("Error, timed out sending message\n");
+			oplus_chg_track_upload_adsp_err_info(
+				bcdev, TRACK_ADSP_ERR_PPS_GLINK_ABNORMAL);
 			mutex_unlock(&bcdev->pps_read_buffer_lock);
 			return -ETIMEDOUT;
 		}
@@ -585,7 +591,7 @@ static void handle_pps_read_buffer(struct battery_chg_dev *bcdev,
 	u32 buf_len;
 
 	if (len > sizeof(bcdev->pps_read_buffer_dump)) {
-		chg_err("Incorrect length received: %zu expected: %u\n", len,
+		chg_err("Incorrect length received: %zu expected: %zu\n", len,
 		sizeof(bcdev->pps_read_buffer_dump));
 		return;
 	}
@@ -691,7 +697,7 @@ static int oplus_set_bcc_debug_parameters(const char *buf)
 				__func__, bcc_debug_mode);
 		}
 		strncpy(bcc_debug_buf, buf + BCC_DEBUG_PARAM_SIZE, BCC_PAGE_SIZE);
-		printk(KERN_ERR "%s bcc_debug_buf:%s, temp_buf\n",
+		printk(KERN_ERR "%s bcc_debug_buf:%s, temp_buf:%s\n",
 			__func__, bcc_debug_buf, temp_buf);
 		return ret;
 	}
@@ -710,11 +716,14 @@ void oplus_get_pps_parameters_from_adsp(void)
 	struct oplus_chg_chip *chip = g_oplus_chip;
 	struct battery_chg_dev *bcdev = NULL;
 	int imax = 0, vmax = 0;
+	struct oplus_pps_chip *pps_chip;
+
 	if (!chip) {
 		chg_err("!!!chip null, oplus_get_batt_argv_buffer\n");
 		return;
 	}
 
+	pps_chip = oplus_pps_get_pps_chip();
 	bcdev = chip->pmic_spmi.bcdev_chip;
 	pps_read_buffer(bcdev);
 	imax = bcdev->pps_read_buffer_dump.data_buffer[0];
@@ -726,9 +735,9 @@ void oplus_get_pps_parameters_from_adsp(void)
 		oplus_pps_set_power(OPLUS_PPS_POWER_V2, imax, vmax);
 	} else if ((imax > OPLUS_PPS_IMIN_V1) && (vmax >= OPLUS_EXTEND_VMIN)) {
 		oplus_pps_set_power(OPLUS_PPS_POWER_V1, imax, vmax);
-		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V1), NULL, imax);
+		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V1, imax);
 	} else {
-		oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V0), NULL, imax);
+		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V0, imax);
 		oplus_pps_set_power(OPLUS_PPS_POWER_CLR, 0, 0);
 	}
 	chg_err("oplus_get_pps_parameters_from_adsp imax = %d, vmax = %d\n", imax, vmax);
@@ -752,6 +761,8 @@ static int battery_chg_fw_write(struct battery_chg_dev *bcdev, void *data,
 					msecs_to_jiffies(WLS_FW_WAIT_TIME_MS));
 		if (!rc) {
 			pr_err("Error, timed out sending message\n");
+			oplus_chg_track_upload_adsp_err_info(
+				bcdev, TRACK_ADSP_ERR_FW_GLINK_ABNORMAL);
 			return -ETIMEDOUT;
 		}
 
@@ -790,6 +801,8 @@ static int battery_chg_write(struct battery_chg_dev *bcdev, void *data,
 			pr_err("Error, timed out sending message\n");
 			if (g_oplus_chip)
 				g_oplus_chip->transfer_timeout_count++;
+			oplus_chg_track_upload_adsp_err_info(
+				bcdev, TRACK_ADSP_ERR_GLINK_ABNORMAL);
 			mutex_unlock(&bcdev->rw_lock);
 			return -ETIMEDOUT;
 		}
@@ -799,6 +812,11 @@ static int battery_chg_write(struct battery_chg_dev *bcdev, void *data,
 	mutex_unlock(&bcdev->rw_lock);
 	if (g_oplus_chip)
 		g_oplus_chip->transfer_timeout_count = 0;
+	if (bcdev->debug_pmic_glink_err) {
+		oplus_chg_track_upload_adsp_err_info(
+			bcdev, bcdev->debug_pmic_glink_err);
+		bcdev->debug_pmic_glink_err = 0;
+	}
 
 	return rc;
 }
@@ -1260,6 +1278,7 @@ static void otg_notification_handler(struct work_struct *work)
 		}
 	} else if (bcdev->otg_boost_src == OTG_BOOST_SOURCE_PMIC) {
 		enable = (bcdev->otg_prohibited ? false : bcdev->otg_online);
+		oplus_voocphy_set_chg_auto_mode(enable);
 		otg_func_ptr = (enable ? chip->chg_ops->otg_enable : chip->chg_ops->otg_disable);
 		if (otg_func_ptr != NULL) {
 			otg_func_ptr();
@@ -1888,6 +1907,7 @@ static void battery_chg_update_usb_type_work(struct work_struct *work)
 			chg_err("start check pd type\n");
 			schedule_delayed_work(&bcdev->pd_type_check_work, OPLUS_PD_TYPE_CHECK_INTERVAL);
 		}
+		break;
 	case POWER_SUPPLY_USB_TYPE_PD_PPS:
 		usb_psy_desc.type = POWER_SUPPLY_TYPE_USB_PD;
 		break;
@@ -1956,6 +1976,7 @@ static void battery_chg_update_usb_type_work(struct work_struct *work)
 		    && pst->prop[USB_ADAP_TYPE] != POWER_SUPPLY_USB_TYPE_UNKNOWN
 		    && last_usb_adap_type != pst->prop[USB_ADAP_TYPE]) {
 			chg_err("oplus_chg_wake_update_work\n");
+			power_supply_changed(g_oplus_chip->batt_psy);
 			oplus_chg_wake_update_work();
 		}
 		last_usb_adap_type = pst->prop[USB_ADAP_TYPE];
@@ -2117,7 +2138,9 @@ static void handle_notification(struct battery_chg_dev *bcdev, void *data,
 		 * appropriate actions (e.g. shutting down when the charger is
 		 * unplugged).
 		 */
+#ifndef OPLUS_FEATURE_CHG_BASIC
 		power_supply_changed(pst->psy);
+#endif
 		pm_wakeup_dev_event(bcdev->dev, 50, true);
 	}
 }
@@ -2903,7 +2926,8 @@ static int battery_psy_get_prop(struct power_supply *psy,
 					oplus_vooc_get_fastchg_to_normal() == true ||
 					oplus_vooc_get_fastchg_to_warm() == true ||
 					oplus_vooc_get_fastchg_dummy_started() == true) {
-					if (chip->prop_status != POWER_SUPPLY_STATUS_FULL) {
+					if (chip->prop_status != POWER_SUPPLY_STATUS_FULL &&
+					    chip->mmi_chg) {
 						pval->intval = POWER_SUPPLY_STATUS_CHARGING;
 					} else {
 						pval->intval = chip->prop_status;
@@ -2918,7 +2942,7 @@ static int battery_psy_get_prop(struct power_supply *psy,
 					pval->intval = chip->prop_status;
 
 				if ((oplus_is_vooc_project() == DUAL_BATT_150W || oplus_is_vooc_project() == DUAL_BATT_240W)
-					&& oplus_quirks_keep_connect_status())
+					&& oplus_quirks_keep_connect_status() && chip->mmi_chg)
 					pval->intval = chip->keep_prop_status;
 			} else if (!chip->authenticate) {
 				pval->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
@@ -2980,7 +3004,7 @@ static int battery_psy_get_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		if (chip->voocphy_support == ADSP_VOOCPHY) {
-			pval->intval = fg_bq27541_get_average_current();
+			pval->intval = oplus_gauge_get_batt_current();
 		} else {
 			pval->intval = oplus_gauge_get_prev_batt_current();
 		}
@@ -3021,7 +3045,11 @@ static int battery_psy_get_prop(struct power_supply *psy,
 		pval->strval = pst->model;
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_FULL_AVG:
-		pval->intval = 1800;
+	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
+		if (chip->time_to_full > 0 && chip->ui_soc == 100)
+			pval->intval = 0;
+		else
+			pval->intval = chip->time_to_full;
 		break;
 	case POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG:
 		pval->intval = 3600;
@@ -3076,6 +3104,14 @@ static int battery_psy_set_prop(struct power_supply *psy,
 		} else {
 			return  -EINVAL;
 		}
+	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
+		if (g_oplus_chip) {
+			g_oplus_chip->time_to_full =
+				(pval->intval & TTF_VALUE_MASK) > 0 ? (pval->intval & TTF_VALUE_MASK) : 0;
+			if (pval->intval & TTF_UPDATE_UEVENT_BIT)
+				power_supply_changed(g_oplus_chip->batt_psy);
+		}
+		break;
 #endif
 	default:
 		return -EINVAL;
@@ -3097,6 +3133,8 @@ static int battery_psy_prop_is_writeable(struct power_supply *psy,
 		} else {
 			return 0;
 		}
+	case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
+		return 1;
 #endif
 	default:
 		break;
@@ -6558,12 +6596,6 @@ bool oplus_usbtemp_change_curr_range(struct oplus_chg_chip *chip, int retry_cnt,
 			return true;
 		}
 	}
-
-	if (curr_range_change == false || chip->usbtemp_curr_status != OPLUS_USBTEMP_LOW_CURR) {
-		last_curr_change_usb_temp_r = chip->usb_temp_r;
-		last_curr_change_usb_temp_l = chip->usb_temp_l;
-	}
-
 	return false;
 }
 
@@ -6721,6 +6753,10 @@ static int oplus_usbtemp_monitor_main_new_method(void *data)
 	struct timespec curr_range_change_last_time;
 	bool usbtemp_first_time_in_curr_range = false;
 	static current_read_count = 0;
+
+	/* add for variables init */
+	curr_range_change_first_time.tv_sec = 0;
+	curr_range_change_last_time.tv_sec = 0;
 
 	pr_err("[oplus_usbtemp_monitor_main_new_method]:run first!");
 
@@ -7968,6 +8004,7 @@ static void oplus_recheck_input_current_work(struct work_struct *work)
 	struct oplus_chg_chip *chip = g_oplus_chip;
 	int chg_vol = 0;
 	int ibus_curr = 0;
+	int fast_chg_type = 0;
 	static int count = 0;
 	static int err_cnt = 0;
 
@@ -7996,8 +8033,10 @@ static void oplus_recheck_input_current_work(struct work_struct *work)
 		}
 
 		if (count > COUNT_TEN) {
+			fast_chg_type = oplus_voocphy_get_fast_chg_type();
 			chg_err("reset input current err_cnt: %d,chg_vol:%d,fastchg_start:%d,fastchg_ing:%d,ibus_curr:%d,fast_chg_type:%d\n",
-				err_cnt,chg_vol,oplus_voocphy_get_fastchg_start(),oplus_voocphy_get_fastchg_ing(),ibus_curr,oplus_voocphy_get_fast_chg_type());
+				err_cnt, chg_vol, oplus_voocphy_get_fastchg_start(),
+				oplus_voocphy_get_fastchg_ing(), ibus_curr, fast_chg_type);
 			if (chip->charger_type != POWER_SUPPLY_TYPE_USB_DCP) {
 				chg_err("reset input current chip->charger_type: %d\n", chip->charger_type);
 				count = 0;
@@ -8009,7 +8048,7 @@ static void oplus_recheck_input_current_work(struct work_struct *work)
 			}
 			if (oplus_voocphy_get_fastchg_start()
 						&& oplus_voocphy_get_fastchg_ing()
-						&& oplus_voocphy_get_fast_chg_type() != CHARGER_SUBTYPE_FASTCHG_VOOC) {
+						&& fast_chg_type != CHARGER_SUBTYPE_FASTCHG_VOOC) {
 				chg_vol = oplus_chg_get_charger_voltage();
 
 				chg_err("reset voocphy setting!,chg_vol:%d\n",chg_vol);
@@ -9459,7 +9498,6 @@ int  oplus_pps_pd_exit(void)
 {
 	msleep(100);
 	oplus_chg_set_pps_config(5000, 3000);
-	msleep(500);
 	return 0;
 }
 
@@ -10877,7 +10915,7 @@ static int oplus_chg_usb_event_notifier_call(struct notifier_block *nb,
 	case OPLUS_CHG_EVENT_PRESENT:
 	case OPLUS_CHG_EVENT_OFFLINE:
 		if (owner_ocm == NULL) {
-			pr_err("This event(=%d) does not support anonymous sending\n",
+			pr_err("This event(=%lu) does not support anonymous sending\n",
 				val);
 			return NOTIFY_BAD;
 		}
@@ -11355,14 +11393,25 @@ static const struct dev_pm_ops battery_chg_pm_ops = {
 static int oplus_chg_ssr_notifier_cb(struct notifier_block *nb,
 				unsigned long code, void *data)
 {
+	struct battery_chg_dev *bcdev = NULL;
+	struct oplus_chg_chip *chip = g_oplus_chip;
+
+	if (!chip)
+		return -1;
+
 	pr_err("code: %lu\n", code);
+	bcdev = chip->pmic_spmi.bcdev_chip;
 
 	switch (code) {
 	case QCOM_SSR_BEFORE_SHUTDOWN:
 		oplus_turn_off_power_when_adsp_crash();
+		oplus_chg_track_upload_adsp_err_info(
+			bcdev, TRACK_ADSP_ERR_SSR_BEFORE_SHUTDOWN);
 		break;
 	case QCOM_SSR_AFTER_POWERUP:
 		oplus_adsp_crash_recover_work();
+		oplus_chg_track_upload_adsp_err_info(
+			bcdev, TRACK_ADSP_ERR_SSR_AFTER_POWERUP);
 		break;
 	default:
 		break;
@@ -11424,6 +11473,81 @@ static int oplus_chg_track_get_local_time_s(void)
 	pr_info("local_time_s:%d\n", local_time_s);
 
 	return local_time_s;
+}
+
+static int oplus_chg_track_upload_adsp_err_info(
+	struct battery_chg_dev *bcdev, int err_type)
+{
+	int index = 0;
+	int curr_time;
+	static int upload_count = 0;
+	static int pre_upload_time = 0;
+
+	if (!bcdev)
+		return -EINVAL;
+
+	mutex_lock(&bcdev->track_upload_lock);
+	memset(bcdev->err_reason, 0, sizeof(bcdev->err_reason));
+	curr_time = oplus_chg_track_get_local_time_s();
+	if (curr_time - pre_upload_time > TRACK_DEVICE_ABNORMAL_UPLOAD_PERIOD)
+		upload_count = 0;
+
+	if (err_type == TRACK_ADSP_ERR_DEFAULT) {
+		mutex_unlock(&bcdev->track_upload_lock);
+		return -EINVAL;
+	}
+
+	if (upload_count > TRACK_UPLOAD_COUNT_MAX) {
+		mutex_unlock(&bcdev->track_upload_lock);
+		return 0;
+	}
+
+	mutex_lock(&bcdev->track_adsp_err_lock);
+	if (bcdev->adsp_err_uploading) {
+		pr_info("adsp_err_uploading, should return\n");
+		mutex_unlock(&bcdev->track_adsp_err_lock);
+		mutex_unlock(&bcdev->track_upload_lock);
+		return 0;
+	}
+
+	if (bcdev->adsp_err_load_trigger)
+		kfree(bcdev->adsp_err_load_trigger);
+	bcdev->adsp_err_load_trigger = kzalloc(sizeof(oplus_chg_track_trigger), GFP_KERNEL);
+	if (!bcdev->adsp_err_load_trigger) {
+		pr_err("adsp_err_load_trigger memery alloc fail\n");
+		mutex_unlock(&bcdev->track_adsp_err_lock);
+		mutex_unlock(&bcdev->track_upload_lock);
+		return -ENOMEM;
+	}
+	bcdev->adsp_err_load_trigger->type_reason =
+		TRACK_NOTIFY_TYPE_DEVICE_ABNORMAL;
+	bcdev->adsp_err_load_trigger->flag_reason =
+		TRACK_NOTIFY_FLAG_PLAT_PMIC_ABNORMAL;
+	bcdev->adsp_err_uploading = true;
+	upload_count++;
+	pre_upload_time = oplus_chg_track_get_local_time_s();
+	mutex_unlock(&bcdev->track_adsp_err_lock);
+
+	index += snprintf(
+		&(bcdev->adsp_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$device_id@@%s",
+		"pm8350b");
+	index += snprintf(
+		&(bcdev->adsp_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index, "$$err_scene@@%s",
+		OPLUS_CHG_TRACK_SCENE_ADSP_ERR);
+
+	oplus_chg_track_get_adsp_err_reason(err_type, bcdev->err_reason, sizeof(bcdev->err_reason));
+	index += snprintf(
+		&(bcdev->adsp_err_load_trigger->crux_info[index]),
+		OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
+		"$$err_reason@@%s", bcdev->err_reason);
+
+	schedule_delayed_work(&bcdev->adsp_err_load_trigger_work, 0);
+	mutex_unlock(&bcdev->track_upload_lock);
+	pr_info("success\n");
+
+	return 0;
 }
 
 static int oplus_chg_track_upload_icl_err_info(
@@ -11518,17 +11642,33 @@ static void oplus_chg_track_icl_err_load_trigger_work(
 	struct battery_chg_dev *bcdev =
 		container_of(dwork, struct battery_chg_dev, icl_err_load_trigger_work);
 
-	if (!bcdev)
+	if (!bcdev->icl_err_load_trigger)
 		return;
 
 	oplus_chg_track_upload_trigger_data(*(bcdev->icl_err_load_trigger));
 	mutex_lock(&bcdev->track_icl_err_lock);
-	if (bcdev->icl_err_load_trigger) {
-		kfree(bcdev->icl_err_load_trigger);
-		bcdev->icl_err_load_trigger = NULL;
-	}
+	kfree(bcdev->icl_err_load_trigger);
+	bcdev->icl_err_load_trigger = NULL;
 	bcdev->icl_err_uploading = false;
 	mutex_unlock(&bcdev->track_icl_err_lock);
+}
+
+static void oplus_chg_track_adsp_err_load_trigger_work(
+	struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct battery_chg_dev *bcdev =
+		container_of(dwork, struct battery_chg_dev, adsp_err_load_trigger_work);
+
+	if (!bcdev->adsp_err_load_trigger)
+		return;
+
+	oplus_chg_track_upload_trigger_data(*(bcdev->adsp_err_load_trigger));
+	mutex_lock(&bcdev->track_adsp_err_lock);
+	kfree(bcdev->adsp_err_load_trigger);
+	bcdev->adsp_err_load_trigger = NULL;
+	bcdev->adsp_err_uploading = false;
+	mutex_unlock(&bcdev->track_adsp_err_lock);
 }
 
 u32 oplus_chg_track_get_adsp_debug(void)
@@ -11596,9 +11736,12 @@ static int oplus_chg_track_debugfs_init(struct battery_chg_dev *bcdev)
 		return ret;
 	}
 
-	bcdev->debug_force_icl_err = false;
+	bcdev->debug_force_icl_err = 0;
+	bcdev->debug_pmic_glink_err = 0;
 	debugfs_create_u32("debug_force_icl_err", 0644,
 	    debugfs_pm8350b, &(bcdev->debug_force_icl_err));
+	debugfs_create_u32("debug_pmic_glink_err", 0644,
+	    debugfs_pm8350b, &(bcdev->debug_pmic_glink_err));
 
 	return ret;
 }
@@ -11611,12 +11754,17 @@ static int oplus_chg_track_init(struct battery_chg_dev *bcdev)
 		return - EINVAL;
 
 	mutex_init(&bcdev->track_icl_err_lock);
+	mutex_init(&bcdev->track_adsp_err_lock);
 	mutex_init(&bcdev->track_upload_lock);
 	bcdev->icl_err_uploading = false;
 	bcdev->icl_err_load_trigger = NULL;
+	bcdev->adsp_err_uploading = false;
+	bcdev->adsp_err_load_trigger = NULL;
 
 	INIT_DELAYED_WORK(&bcdev->icl_err_load_trigger_work,
 	    oplus_chg_track_icl_err_load_trigger_work);
+	INIT_DELAYED_WORK(&bcdev->adsp_err_load_trigger_work,
+	    oplus_chg_track_adsp_err_load_trigger_work);
 
 	rc = oplus_chg_track_debugfs_init(bcdev);
 	if (rc < 0) {
@@ -11938,6 +12086,8 @@ ic_reg_err:
 	oplus_chg_mod_unregister(bcdev->usb_ocm);
 	if (bcdev->icl_err_load_trigger)
 		kfree(bcdev->icl_err_load_trigger);
+	if (bcdev->adsp_err_load_trigger)
+		kfree(bcdev->adsp_err_load_trigger);
 #endif
 error:
 	bcdev->initialized = false;

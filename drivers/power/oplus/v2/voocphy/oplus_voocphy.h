@@ -11,9 +11,13 @@
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 9, 0))
 #include <linux/wakelock.h>
 #endif
+#include <linux/irq.h>
 #include <linux/timer.h>
 #include <linux/hrtimer.h>
 #include <linux/slab.h>
+#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
+#include "oplus_cfg.h"
+#endif
 
 #define IRQ_EVNET_NUM				8
 #define BIDIRECT_IRQ_EVNET_NUM			12
@@ -24,6 +28,7 @@
 #define SVOOC_INIT_VBUS_VOL_LOW			5000
 #define SVOOC_INIT_VBUS_VOL_HIGH		8500
 #define SVOOC_COPYCAT_VBUS_DOWN_DELAY_MS	500000
+#define VOOC20_NON_EXPECT_CMD_COUNTS		3
 
 /* int flag */
 #define VOUT_OVP_FLAG_MASK		BIT(7)
@@ -136,7 +141,6 @@ enum {
 	VOOC_THREAD_TIMER_SAFE,
 	VOOC_THREAD_TIMER_COMMU,
 	VOOC_THREAD_TIMER_DISCON,
-	VOOC_THREAD_TIMER_FASTCHG_CHECK,
 	VOOC_THREAD_TIMER_TEST_CHECK,
 	VOOC_THREAD_TIMER_IBUS_CHECK,
 	VOOC_THREAD_TIMER_INVALID,
@@ -499,6 +503,9 @@ do {				\
 #define	OPLUS_FASTCHG_STAGE_2	  	2
 #define OPLUS_FASTCHG_RECOVER_TIME   	(15000/VOOC_FASTCHG_CHECK_TIME)
 
+#define BCC_CURRENT_MIN		(1000/100)
+#define SINGAL_BATT_SVOOC_CURRENT_FACTOR 2
+
 struct vooc_monitor_event {
 	int status;
 	int cnt;
@@ -516,7 +523,7 @@ struct batt_sys_curve {
 	unsigned int chg_time;
 };
 
-#define BATT_SYS_ROW_MAX        13
+#define BATT_SYS_ROW_MAX        20
 #define BATT_SYS_COL_MAX        7
 #define BATT_SYS_MAX            6
 
@@ -537,6 +544,15 @@ enum {
 	BATT_SYS_CURVE_MAX,
 };
 
+enum oplus_adapter_abnormal_type {
+	ADAPTER_ABNORMAL_UNKNOW,
+	ADAPTER_ABNORMAL_START_INVAILD_FRAME,
+	ADAPTER_ABNORMAL_TX_FAIL_BEFORE_BAT_MODEL,
+	ADAPTER_ABNORMAL_TX_FAIL_FIRST_ASK_CURRENT,
+	ADAPTER_ABNORMAL_VBUS_OK_DETECT_ERR,
+	ADAPTER_ABNORMAL_MAX,
+};
+
 enum {
 	CHIP_ID_DEFAULT = 0,
 	CHIP_ID_SC8547,
@@ -549,6 +565,20 @@ enum oplus_voocphy_ovp_ctrl {
 	INVALID_CP_ID,
 };
 
+enum oplus_fastchg_copycat_type {
+	FAST_COPYCAT_TYPE_UNKNOW,
+	FAST_COPYCAT_ASK_BAT_MODEL,
+	FAST_COPYCAT_SVOOC_ASK_VBUS_STATUS,
+	FAST_COPYCAT_OVER_EXPECT_CURRENT,
+	FAST_COPYCAT_OVER_VBAT_CURRENT,
+	FAST_COPYCAT_VOOC20_REPEAT_FASTCHG_ORNOT,
+	FAST_COPYCAT_VOOC20_REPEAT_IS_VBUS_OK,
+	FAST_COPYCAT_SVOOC_IS_VBUS_OK_EXCEED_MAXCNT,
+	FAST_COPYCAT_SVOOC_MISS_ASK_CUR_LEVEL,
+	FAST_COPYCAT_VOOC20_NON_EXPECT_CMD,
+	FAST_COPYCAT_TYPE_MAX,
+};
+
 struct oplus_voocphy_manager {
 	struct i2c_client *client;
 	struct device *dev;
@@ -558,6 +588,7 @@ struct oplus_voocphy_manager {
 	struct oplus_voocphy_operations *slave_ops;
 	struct vphy_chip *vchip;
 	struct power_supply *batt_psy;
+	void *priv_data;
 
 	int irq_gpio;
 	int irq;
@@ -585,6 +616,7 @@ struct oplus_voocphy_manager {
 	unsigned char adapter_check_cmmu_count;
 	unsigned char adapter_is_vbus_ok_count;
 	unsigned char adapter_ask_fastchg_ornot_count;
+	unsigned char adapter_ask_non_expect_cmd_count;
 	unsigned char adapter_rand_h; /* adapter checksum high byte */
 	unsigned char adapter_rand_l;  /* adapter checksum low byte */
 	unsigned int code_id_local; /* identification code at voocphy */
@@ -642,6 +674,7 @@ struct oplus_voocphy_manager {
 	int vooc_warm_allow_vol;
 	int vooc_warm_allow_soc;
 	int cool_down;
+	int parallel_charge_project;
 
 	unsigned int plug_in_batt_temp;
 
@@ -656,9 +689,12 @@ struct oplus_voocphy_manager {
 	unsigned int vooc_cool_down_num;
 	unsigned int current_default;
 	unsigned int current_expect;
+	unsigned int current_recovery_limit;
+	unsigned int current_bcc_ext;
 	unsigned int current_max;
 	unsigned int current_spec;
 	unsigned int current_ap;
+	unsigned int current_bcc;
 	unsigned int current_batt_temp;
 	unsigned char ap_need_change_current;
 	unsigned char adjust_curr;
@@ -686,6 +722,7 @@ struct oplus_voocphy_manager {
 	unsigned int sub_vbatt;
 	int sub_batt_icharging;
 	unsigned int ask_current_first;
+	unsigned int ask_batvol_first;
 	unsigned int vbus;
 	unsigned int current_pwd;	/* copycat adapter current thd */
 	unsigned int curr_pwd_count;	/* count for copycat adapter is ornot */
@@ -697,6 +734,8 @@ struct oplus_voocphy_manager {
 	unsigned int slave_cp_enable_thr;
 	unsigned int slave_cp_disable_thr_high;
 	unsigned int slave_cp_disable_thr_low;
+	unsigned int default_slave_cp_enable_thr;
+	unsigned int slave_cp_enable_thr_low;
 
 	int batt_temp_plugin; /* batt_temp at plugin */
 	int batt_soc_plugin; /* batt_soc at plugin */
@@ -727,18 +766,16 @@ struct oplus_voocphy_manager {
 	bool fastchg_reactive;
 	bool fastchg_real_allow;
 	bool fastchg_commu_stop;
-	bool fastchg_check_stop;
 	bool fastchg_monitor_stop;
 	bool fastchg_commu_ing;
 	bool vooc_move_head;
-	bool copycat_vooc_adapter;
 	bool user_exit_fastchg;
 	unsigned char fastchg_stage;
 	bool fastchg_need_reset;
 	bool fastchg_recovering;
 	unsigned int fastchg_recover_cnt;
 
-	int screenoff_current;
+	int vooc_current;
 	int vooc_vbus_status;
 	int vbus_vbatt;
 	int adapter_type;
@@ -758,7 +795,10 @@ struct oplus_voocphy_manager {
 	struct delayed_work check_chg_out_work;
 	struct delayed_work clear_boost_work;
 	struct delayed_work voocphy_send_ongoing_notify;
+	struct delayed_work recovery_system_work;
+	struct work_struct first_ask_batvol_work;
 	atomic_t  voocphy_freq_state;
+	bool recovery_system_done;
 	int voocphy_freq_mincore;
 	int voocphy_freq_midcore;
 	int voocphy_freq_maxcore;
@@ -790,6 +830,7 @@ struct oplus_voocphy_manager {
 	int irq_rcverr_num;
 	int vooc_flag;
 	int interrupt_flag;
+	int interrupt_flag_hl7138;
 	int irq_tx_timeout_num;
 	int irq_tx_timeout;
 	int irq_hw_timeout_num;
@@ -860,7 +901,16 @@ struct oplus_voocphy_manager {
 	u8 int_column_pre[6];
 	bool copycat_vooc_support;
 	int chip_id;
+	int high_curr_setting;
 	enum oplus_voocphy_ovp_ctrl ovp_ctrl_cpindex;
+	int buck_ucp_thre;
+	bool retry_flag;
+	enum oplus_adapter_abnormal_type adapter_abnormal_type;
+	bool workaround_for_100w;
+	enum oplus_fastchg_copycat_type copycat_type;
+#if IS_ENABLED(CONFIG_OPLUS_DYNAMIC_CONFIG_CHARGER)
+	struct oplus_cfg debug_cfg;
+#endif
 };
 
 struct oplus_voocphy_operations {
@@ -888,6 +938,8 @@ struct oplus_voocphy_operations {
 	bool (*get_pd_svooc_config)(struct oplus_voocphy_manager *chip);
 	int (*adsp_voocphy_enable)(bool enable);
 	int (*adsp_voocphy_reset_again)(void);
+	void (*adsp_set_ap_fastchg_allow)(int allow);
+	void (*adsp_set_cool_down)(int allow);
 	u8 (*get_vbus_status)(struct oplus_voocphy_manager *chip);
 	int (*set_chg_auto_mode)(struct oplus_voocphy_manager *chip, bool enable);
 	int (*clear_interrupts)(struct oplus_voocphy_manager *chip);
@@ -896,6 +948,7 @@ struct oplus_voocphy_operations {
 	int (*get_chip_id)(struct oplus_voocphy_manager *chip);
 	int (*reset_voocphy_ovp)(struct oplus_voocphy_manager *chip);
 	bool (*check_cp_int_happened)(struct oplus_voocphy_manager *chip, bool *dump_reg, bool *send_info);
+	void (*dual_chan_buck_set_ucp)(struct oplus_voocphy_manager *chip, int ucp_value);
 };
 
 #define VOOCPHY_LOG_BUF_LEN 1024
@@ -918,6 +971,7 @@ bool oplus_voocphy_chip_is_null(void);
 void oplus_voocphy_slave_init(struct oplus_voocphy_manager *chip);
 void oplus_voocphy_get_chip(struct oplus_voocphy_manager **chip);
 int oplus_register_voocphy(struct oplus_voocphy_manager *chip);
+irqreturn_t oplus_voocphy_interrupt_handler(struct oplus_voocphy_manager *chip);
 
 int __attribute__((weak)) ppm_sys_boost_min_cpu_freq_set(int freq_min, int freq_mid, int freq_max, unsigned int clear_time)
 {
@@ -928,4 +982,17 @@ int __attribute__((weak)) ppm_sys_boost_min_cpu_freq_clear(void)
 {
 	return 0;
 }
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) || IS_ENABLED(CONFIG_QGKI))
+#if IS_ENABLED(CONFIG_OPLUS_CHG_AP_VOOCPHY)
+void update_highcap_mask(struct cpumask *cpu_highcap_mask);
+#else
+__maybe_unused
+static inline void update_highcap_mask(struct cpumask *cpu_highcap_mask)
+{
+	return;
+}
+#endif
+#endif
+
 #endif /* _OPLUS_VOOCPHY_H_ */

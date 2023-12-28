@@ -724,7 +724,7 @@ static s32 fg_decode_iic_write(struct chip_bq27541 *chip, struct sh_decoder *dec
 	if (oplus_is_rf_ftm_mode())
 		return 0;
 
-	if ((length <= 0) || (length > WRITE_BUF_MAX_LEN)) {
+	if ((length <= 0) || (length + 1 >= WRITE_BUF_MAX_LEN)) {
 		pr_err("i2c write buffer fail: length invalid!\n");
 		return -1;
 	}
@@ -798,7 +798,7 @@ s32 sh366002_read_gaugeinfo_block(struct chip_bq27541 *chip)
 	memset(str, 0, GAUGESTR_LEN);
 	i = 0;
 	i += sprintf(&str[i], "Tick=%d, ", (u32)jiffies_now);
-	i += sprintf(&str[i], "Elasp=%d, ", tick);
+	i += sprintf(&str[i], "Elasp=%lld, ", tick);
 
 	ret = fg_read_sbs_word(chip, CMD_CNTLSTATUS, &data);
 	if (ret < 0) {

@@ -37,6 +37,7 @@ struct test_kit_typec_port_info {
 	int case_num;
 	int status;
 	int situation;
+	void *private_data;
 };
 
 struct test_kit_soc_gpio_info {
@@ -74,84 +75,84 @@ void test_kit_unreg_mtk_spmi_gpio_check(void);
 bool test_kit_mtk_gpio_check(void *info, char *buf, size_t len, size_t *use_size);
 bool test_kit_qcom_gpio_check(void *info, char *buf, size_t len, size_t *use_size);
 #else /* CONFIG_OPLUS_CHG_TEST_KIT */
-inline struct test_feature *
+inline static struct test_feature *
 test_feature_register(const struct test_feature_cfg *cfg, void *private_data)
 {
 	return NULL;
 }
 
-inline void test_feature_unregister(struct test_feature *feature)
+inline static void test_feature_unregister(struct test_feature *feature)
 {
 }
 
-bool test_kit_qcom_soc_gpio_test(struct test_feature *feature,
+inline static bool test_kit_qcom_soc_gpio_test(
+	struct test_feature *feature, char *buf, size_t len)
+{
+	return false;
+}
+
+inline static bool test_kit_mtk_soc_gpio_test(struct test_feature *feature,
 				 char *buf, size_t len)
 {
 	return false;
 }
 
-bool test_kit_mtk_soc_gpio_test(struct test_feature *feature,
+inline static int test_kit_reg_qcom_soc_gpio_check(test_kit_gpio_check_func_t func)
+{
+	return -ENOTSUPP;
+}
+
+inline static int test_kit_reg_mtk_soc_gpio_check(test_kit_gpio_check_func_t func)
+{
+	return -ENOTSUPP;
+}
+
+inline static void test_kit_unreg_qcom_soc_gpio_check(void)
+{
+}
+
+inline static void test_kit_unreg_mtk_soc_gpio_check(void)
+{
+}
+
+inline static int test_kit_reg_qcom_spmi_gpio_check(test_kit_gpio_check_func_t func)
+{
+	return -ENOTSUPP;
+}
+
+inline static int test_kit_reg_mtk_spmi_gpio_check(test_kit_gpio_check_func_t func)
+{
+	return -ENOTSUPP;
+}
+
+inline static void test_kit_unreg_qcom_spmi_gpio_check(void)
+{
+}
+
+inline static void test_kit_unreg_mtk_spmi_gpio_check(void)
+{
+}
+
+inline static bool test_kit_typec_port_test(struct test_feature *feature,
 				 char *buf, size_t len)
 {
 	return false;
 }
 
-int test_kit_reg_qcom_soc_gpio_check(test_kit_gpio_check_func_t func)
+inline static int test_kit_reg_typec_port_check(test_kit_gpio_check_func_t func)
 {
 	return -ENOTSUPP;
 }
 
-int test_kit_reg_mtk_soc_gpio_check(test_kit_gpio_check_func_t func)
-{
-	return -ENOTSUPP;
-}
-
-void test_kit_unreg_qcom_soc_gpio_check(void)
+inline static void test_kit_unreg_typec_port_check(void)
 {
 }
 
-void test_kit_unreg_mtk_soc_gpio_check(void)
-{
-}
-
-int test_kit_reg_qcom_spmi_gpio_check(test_kit_gpio_check_func_t func)
-{
-	return -ENOTSUPP;
-}
-
-int test_kit_reg_mtk_spmi_gpio_check(test_kit_gpio_check_func_t func)
-{
-	return -ENOTSUPP;
-}
-
-void test_kit_unreg_qcom_spmi_gpio_check(void)
-{
-}
-
-void test_kit_unreg_mtk_spmi_gpio_check(void)
-{
-}
-
-bool test_kit_typec_port_test(struct test_feature *feature,
-				 char *buf, size_t len)
+inline static bool test_kit_mtk_gpio_check(void *info, char *buf, size_t len, size_t *use_size)
 {
 	return false;
 }
-
-int test_kit_reg_typec_port_check(test_kit_gpio_check_func_t func)
-{
-	return -ENOTSUPP;
-}
-
-void test_kit_unreg_typec_port_check(void)
-{
-}
-
-bool test_kit_mtk_gpio_check(void *info, char *buf, size_t len, size_t *use_size)
-{
-	return false;
-}
-bool test_kit_qcom_gpio_check(void *info, char *buf, size_t len, size_t *use_size)
+inline static bool test_kit_qcom_gpio_check(void *info, char *buf, size_t len, size_t *use_size)
 {
 	return false;
 }

@@ -469,8 +469,8 @@ static int nu1619_get_aes_data6(struct oplus_nu1619_ic *chip)
 	nu1619_write_reg(chip, 0x0000, 0x48);
 	nu1619_write_reg(chip, 0x0001, P9221_CMD_GET_AES_DATA6);
 	nu1619_write_reg(chip, 0x0002, chip->nu1619_chg_status.aes_verfith_data.aes_encode_num[15]);
-	nu1619_write_reg(chip, 0x0003, chip->nu1619_chg_status.aes_verfith_data.aes_encode_num[16]);
-	nu1619_write_reg(chip, 0x0004, chip->nu1619_chg_status.aes_verfith_data.aes_encode_num[17]);
+	nu1619_write_reg(chip, 0x0003, 0xFF);
+	nu1619_write_reg(chip, 0x0004, 0xFF);
 	nu1619_write_cmd_D(chip, 0x01);
 
 	return 0;
@@ -538,7 +538,7 @@ static int nu1619_test_charging_status(void)
 		return -1;
 	}
 
-	chg_err("<~WPC~>[-TEST-]charging time: %ds\n", now_seconds - records_seconds);
+	chg_err("<~WPC~>[-TEST-]charging time: %lus\n", now_seconds - records_seconds);
 	if ((now_seconds - records_seconds) >  270) {
 		return 4;
 	} else if ((now_seconds - records_seconds) >  180) {
@@ -611,7 +611,7 @@ static int __nu1619_write_reg(struct oplus_nu1619_ic *chip, int reg, int val)
 	return 0;
 }
 
-static int nu1619_write_reg_multi_byte(struct oplus_nu1619_ic *chip, int reg, char *cbuf, int length)
+/*static int nu1619_write_reg_multi_byte(struct oplus_nu1619_ic *chip, int reg, char *cbuf, int length)
 {
 	int ret;
 	int send_length;
@@ -643,7 +643,7 @@ static int nu1619_write_reg_multi_byte(struct oplus_nu1619_ic *chip, int reg, ch
 
 	kfree(data_w);
 	return 0;
-}
+}*/
 
 static int nu1619_read_reg(struct oplus_nu1619_ic *chip, int reg, char *returnData, int count)
 {
@@ -703,7 +703,7 @@ static int nu1619_write_cmd_D(struct oplus_nu1619_ic *chip, int val)
 
 static void nu1619_clear_irq(struct oplus_nu1619_ic *chip, char mark0, char mark1)
 {
-	char write_data[2] = {0, 0};
+	/*char write_data[2] = {0, 0};*/
 
 	chg_err("<~WPC~>nu1619_clear_irq----------\n");
 	nu1619_write_reg(chip, 0x0000, 0xff);
@@ -712,7 +712,7 @@ static void nu1619_clear_irq(struct oplus_nu1619_ic *chip, char mark0, char mark
 	nu1619_write_cmd_D(chip, 0x08);
 	return;
 
-	write_data[0] = 0x17 | mark0;
+	/*write_data[0] = 0x17 | mark0;
 	write_data[1] = 0x00 | mark1;
 	nu1619_write_reg_multi_byte(chip, 0x0038, write_data, 2);
 
@@ -722,7 +722,7 @@ static void nu1619_clear_irq(struct oplus_nu1619_ic *chip, char mark0, char mark
 
 	write_data[0] = 0x20;
 	write_data[1] = 0x00;
-	nu1619_write_reg_multi_byte(chip, 0x004E, write_data, 2);
+	nu1619_write_reg_multi_byte(chip, 0x004E, write_data, 2);*/
 }
 
 static void nu1619_set_FOD_parameter(struct oplus_nu1619_ic *chip, char parameter)
@@ -732,7 +732,7 @@ static void nu1619_set_FOD_parameter(struct oplus_nu1619_ic *chip, char paramete
 	}
 
 	return;
-	if (parameter == 17) {
+	/*if (parameter == 17) {
 		chg_err("<~WPC~>set FOD parameter BPP17\n");
 		nu1619_config_interface(chip, 0x0068, 0xBE, 0xFF);
 		nu1619_config_interface(chip, 0x0069, 0x78, 0xFF);
@@ -812,7 +812,7 @@ static void nu1619_set_FOD_parameter(struct oplus_nu1619_ic *chip, char paramete
 		nu1619_config_interface(chip, 0x0073, 0x7F, 0xFF);
 
 		chip->nu1619_chg_status.FOD_parameter = parameter;
-	}
+	}*/
 }
 
 static int nu1619_set_tx_Q_value(struct oplus_nu1619_ic *chip)
@@ -1145,7 +1145,7 @@ static int nu1619_dock_verify_timeout(struct oplus_nu1619_ic *chip)
 	}
 
 	delta_seconds = now_seconds - chip->nu1619_chg_status.dock_verify_start;
-	chg_err("<~WPC~><~VRY~> dock verify time: %ds\n", delta_seconds);
+	chg_err("<~WPC~><~VRY~> dock verify time: %lus\n", delta_seconds);
 	if (delta_seconds > DOCK_VERIFY_TIMEOUT)
 		return 1;
 	else
@@ -1382,10 +1382,10 @@ static void nu1619_reset_variables(struct oplus_nu1619_ic *chip)
 
 static void nu1619_init(struct oplus_nu1619_ic *chip)
 {
-	char write_data[2] = {0, 0};
+	/*char write_data[2] = {0, 0};*/
 	return;
 
-	write_data[0] = 0x17;
+	/*write_data[0] = 0x17;
 	write_data[1] = 0x00;
 	nu1619_write_reg_multi_byte(chip, 0x0038, write_data, 2);
 
@@ -1396,7 +1396,7 @@ static void nu1619_init(struct oplus_nu1619_ic *chip)
 
 	write_data[0] = 0x20;
 	write_data[1] = 0x00;
-	nu1619_write_reg_multi_byte(chip, 0x004E, write_data, 2);
+	nu1619_write_reg_multi_byte(chip, 0x004E, write_data, 2);*/
 }
 
 static void nu1619_charger_init(struct oplus_nu1619_ic *chip)
@@ -2128,6 +2128,8 @@ static int nu1619_write_firmware_data(struct oplus_nu1619_ic *chip, unsigned sho
 	if (addr == 4864) {
 		fw_data = chip->fw_tx_data;
 	}
+	if (fw_data == NULL)
+		return -EINVAL;
 	chg_err("[nu1619] addr=%d length=%d \n", addr, length);
 	addr_h = (char)(addr >> 8);
 	addr_l = (char)(addr & 0xff);
@@ -2874,26 +2876,26 @@ static int nu1619_detect_CEP(struct oplus_nu1619_ic * chip)
 #ifndef FASTCHG_TEST_BY_TIME
 static int nu1619_get_work_freq(struct oplus_nu1619_ic *chip, int *val)
 {
-	int rc;
-	char temp;
+	/*int rc;
+	char temp;*/
 return 0;
-	rc = nu1619_read_reg(chip, 0x5e, &temp, 1);
+	/*rc = nu1619_read_reg(chip, 0x5e, &temp, 1);
 	if (rc) {
 		chg_err("Couldn't read rx freq val, rc = %d\n", rc);
 		return rc;
 	}
 	*val = (int)temp;
-	return rc;
+	return rc;*/
 }
 #endif
 
 static int nu1619_get_special_ID(struct oplus_nu1619_ic *chip)
 {
-	int rc;
-	char temp[2];
+	/*int rc;
+	char temp[2];*/
 
 return 0;
-	rc = nu1619_read_reg(chip, 0xA2, temp, 2);
+	/*rc = nu1619_read_reg(chip, 0xA2, temp, 2);
 	if (rc) {
 		chg_err("Couldn't read rx freq val, rc = %d\n", rc);
 		return -1;
@@ -2904,7 +2906,7 @@ return 0;
 		return -1;
 	} else {
 		return 0;
-	}
+	}*/
 }
 
 static bool nu1619_get_self_reset(void)
@@ -4530,8 +4532,10 @@ static int nu1619_charge_get_ffc_input_current(struct oplus_nu1619_ic *chip)
 		if (ffc_level != FASTCHARGE_LEVEL_UNKNOW && ffc_level < ARRAY_SIZE(ffc_max_vol)) {
 			if (g_oplus_chip->batt_volt >= ffc_max_vol[ffc_level]) {
 				ffc_level++;
-				if (ffc_max_vol[ffc_level] == 0)
-					ffc_level++;
+				if (ffc_level < ARRAY_SIZE(ffc_max_vol)) {
+					if (ffc_max_vol[ffc_level] == 0)
+						ffc_level++;
+				}
 				if (ffc_level >= ARRAY_SIZE(ffc_max_vol)) {
 					ffc_level = FASTCHARGE_LEVEL_NUM;
 					chip->nu1619_chg_status.chg_in_cv = true;
@@ -4580,8 +4584,10 @@ static int nu1619_charge_get_ffc_input_current(struct oplus_nu1619_ic *chip)
 		if (non_ffc_level != FASTCHARGE_LEVEL_UNKNOW && non_ffc_level < ARRAY_SIZE(non_ffc_max_vol)) {
 			if (g_oplus_chip->batt_volt >= non_ffc_max_vol[non_ffc_level]) {
 				non_ffc_level++;
-				if (non_ffc_max_vol[non_ffc_level] == 0)
-					non_ffc_level++;
+				if (non_ffc_level < ARRAY_SIZE(non_ffc_max_vol)) {
+					if (non_ffc_max_vol[non_ffc_level] == 0)
+						non_ffc_level++;
+				}
 				if (chip->nu1619_chg_status.rx_runing_mode == RX_RUNNING_MODE_EPP_15W
 						&& non_ffc_level == FASTCHARGE_LEVEL_5)
 					non_ffc_level++;
@@ -5746,7 +5752,7 @@ static int nu1619_charge_status_process(struct oplus_nu1619_ic *chip)
 			break;
 		}
 		chargepump_enable();
-		chargepump_check_dwp_status();
+		(void)chargepump_check_dwp_status();
 		if (chargepump_check_dwp_status() == -1) {
 			chg_err("<~WPC~> open chargepump false!\n");
 			chargepump_disable();
@@ -6904,7 +6910,7 @@ static void nu1619_get_running_mode(struct oplus_nu1619_ic *chip)
 	int count = 20;
 	int retry_count = 3;
 	char val_buf[5] = { 0, 0, 0, 0, 0 };
-	char temp;
+	char temp = 0;
 
 	if (atomic_read(&chip->suspended) == 1) {
 		while (count--) {
@@ -8301,7 +8307,7 @@ int oplus_get_wrx_en_val(void)
 	struct oplus_nu1619_ic *chip = nu1619_chip;
 
 	if (!chip) {
-		chg_err("oplus_wpc_chip not ready!\n", __func__);
+		chg_err("oplus_wpc_chip not ready!\n");
 		return 0;
 	}
 	if (chip->wrx_en_gpio <= 0) {
@@ -8391,7 +8397,7 @@ int oplus_get_wrx_otg_en_val(void)
 	struct oplus_nu1619_ic *chip = nu1619_chip;
 
 	if (!chip) {
-		chg_err("oplus_wpc_chip not ready!\n", __func__);
+		chg_err("oplus_wpc_chip not ready!\n");
 		return 0;
 	}
 	if (chip->wrx_otg_en_gpio <= 0) {
@@ -8951,6 +8957,7 @@ static void nu1619_task_work_process(struct work_struct *work)
 #ifdef SUPPORT_OPLUS_WPC_VERIFY
 		case WPC_CHG_STATUS_START_VERIFY:
 			schedule_delayed_work(&chip->nu1619_task_work, round_jiffies_relative(msecs_to_jiffies(1000)));
+			break;
 		case WPC_CHG_STATUS_WAITING_VERIFY:
 			schedule_delayed_work(&chip->nu1619_task_work, msecs_to_jiffies(200));
 			break;
@@ -9233,7 +9240,6 @@ static ssize_t proc_wireless_current_out_write(struct file *file, const char __u
 #ifdef DEBUG_FASTCHG_BY_ADB
 	char cur_string[8] = {0};
 	int cur = 0;
-	int len = count < 8 ? count : 8;
 	int rc;
 
 	if (nu1619_chip == NULL) {
@@ -9241,11 +9247,15 @@ static ssize_t proc_wireless_current_out_write(struct file *file, const char __u
 		return -ENODEV;
 	}
 
-	if (copy_from_user(cur_string, buf, len)) {
+	if (count > sizeof(cur_string) - 1)
+		count = sizeof(cur_string) - 1;
+
+	if (copy_from_user(cur_string, buf, count)) {
 		chg_err("copy from user error\n");
 		return -EFAULT;
 	}
-	rc = kstrtoint(cur_string, 0, &cur);
+	cur_string[count] = '\0';
+	rc = kstrtoint(strstrip(cur_string), 0, &cur);
 	if (rc != 0)
 		return -EINVAL;
 	chg_err("set current: cur_string = %s, cur = %d.", cur_string, cur);
@@ -9301,7 +9311,7 @@ static ssize_t proc_wireless_ftm_mode_read(struct file *file, char __user *buf, 
 #define ENGINEERING_MODE_DISABLE	3
 static ssize_t proc_wireless_ftm_mode_write(struct file *file, const char __user *buf, size_t len, loff_t *lo)
 {
-	char buffer[4] = {0};
+	char buffer[5] = { 0 };
 	int ftm_mode = 0;
 	int rc;
 	struct oplus_nu1619_ic *chip = nu1619_chip;
@@ -9311,8 +9321,8 @@ static ssize_t proc_wireless_ftm_mode_write(struct file *file, const char __user
 		return -ENODEV;
 	}
 
-	if (len > 4) {
-		chg_err("len[%d] -EFAULT\n", len);
+	if (len > sizeof(buffer) - 1) {
+		chg_err("len[%zu] -EFAULT\n", len);
 		return -EFAULT;
 	}
 
@@ -9320,9 +9330,9 @@ static ssize_t proc_wireless_ftm_mode_write(struct file *file, const char __user
 		chg_err("copy from user error\n");
 		return -EFAULT;
 	}
-
+	buffer[len] = '\0';
 	chg_err("ftm mode: buffer=%s\n", buffer);
-	rc = kstrtoint(buffer, 0, &ftm_mode);
+	rc = kstrtoint(strstrip(buffer), 0, &ftm_mode);
 	if (rc != 0)
 		return -EINVAL;
 
@@ -9379,7 +9389,6 @@ static ssize_t proc_wireless_rx_voltage_write(struct file *file,
 {
 	char vol_string[8] = {0};
 	int vol = 0;
-	int len = count < 8 ? count : 8;
 	int rc;
 
 	if (nu1619_chip == NULL) {
@@ -9387,11 +9396,15 @@ static ssize_t proc_wireless_rx_voltage_write(struct file *file,
 		return -ENODEV;
 	}
 
-	if (copy_from_user(vol_string, buf, len)) {
+	if (count > sizeof(vol_string) - 1)
+		count = sizeof(vol_string) - 1;
+
+	if (copy_from_user(vol_string, buf, count)) {
 		chg_err("copy from user error\n");
 		return -EFAULT;
 	}
-	rc = kstrtoint(vol_string, 0, &vol);
+	vol_string[count] = '\0';
+	rc = kstrtoint(strstrip(vol_string), 0, &vol);
 	if (rc != 0)
 		return -EINVAL;
 	chg_err("set voltage: vol_string = %s, vol = %d.", vol_string, vol);
@@ -9458,7 +9471,8 @@ static ssize_t proc_wireless_tx_write(struct file *file, const char __user *buf,
 		return -ENODEV;
 	}
 
-	if (count > 5) {
+	if (count > sizeof(buffer) - 1) {
+		chg_err("count: error\n");
 		return -EFAULT;
 	}
 
@@ -9466,7 +9480,6 @@ static ssize_t proc_wireless_tx_write(struct file *file, const char __user *buf,
 		chg_err("%s: error.\n", __func__);
 		return -EFAULT;
 	}
-
 	if (chip->nu1619_chg_status.charge_online == true) {
 		chg_err("<~WPC~> charge_online is true, can't set rtx function, return!\n");
 		return -EBUSY;
@@ -9481,9 +9494,9 @@ static ssize_t proc_wireless_tx_write(struct file *file, const char __user *buf,
 		chg_err("<~WPC~> wired_chg_present, can't set rtx_function, return!\n");
 		return -EBUSY;
 	}
-
+	buffer[count] = '\0';
 	chg_err("buffer=%s", buffer);
-	rc = kstrtoint(buffer, 0, &val);
+	rc = kstrtoint(strstrip(buffer), 0, &val);
 	if (rc != 0)
 		return -EINVAL;
 	chg_err("val = %d", val);
@@ -9629,7 +9642,7 @@ static ssize_t proc_wireless_charge_pump_write(struct file *file,
 	char buffer[2] = { 0 };
 	int val = 0;
 
-	chg_err("%s: len[%d] start.\n", __func__, count);
+	chg_err("%s: len[%zu] start.\n", __func__, count);
 	if (count > 2) {
 		return -EFAULT;
 	}
@@ -9834,17 +9847,16 @@ static ssize_t proc_wireless_rx_write(struct file *file, const char __user *buf,
 		return -ENODEV;
 	}
 
-	if (count > 5) {
+	if (count > sizeof(buffer) - 1)
 		return -EFAULT;
-	}
 
 	if (copy_from_user(buffer, buf, count)) {
 		chg_err("%s: error.\n", __func__);
 		return -EFAULT;
 	}
-
+	buffer[count] = '\0';
 	chg_err("buffer=%s", buffer);
-	rc = kstrtoint(buffer, 0, &val);
+	rc = kstrtoint(strstrip(buffer), 0, &val);
 	if (rc != 0)
 		return -EINVAL;
 	chg_err("val = %d", val);
@@ -10326,16 +10338,17 @@ static ssize_t proc_wireless_rx_freq_write(struct file *file,
 		return -ENODEV;
 	}
 
-	if (count > 16)
+	if (count > sizeof(string) - 1)
 		return -EFAULT;
 
-	memset(string, 0, 16);
+	memset(string, 0, sizeof(string));
 	if (copy_from_user(string, buf, count)) {
 		chg_err("copy from user error\n");
 		return -EFAULT;
 	}
-	chg_err("buf = %s, len = %d\n", string, count);
-	rc = kstrtoint(string, 0, &freq);
+	string[count] = '\0';
+	chg_err("buf = %s, len = %zu\n", string, count);
+	rc = kstrtoint(strstrip(string), 0, &freq);
 	if (rc != 0)
 		return -EINVAL;
 	chg_err("set freq threshold to %d\n", freq);
@@ -10461,7 +10474,7 @@ static ssize_t proc_wireless_user_sleep_mode_read(struct file *file, char __user
 static ssize_t proc_wireless_user_sleep_mode_write(struct file *file, const char __user *buf,
 				      size_t len, loff_t *lo)
 {
-	char buffer[4] = {0};
+	char buffer[5] = { 0 };
 	int pmw_pulse = 0;
 	int rc = -1;
 	struct oplus_nu1619_ic *chip = nu1619_chip;
@@ -10471,8 +10484,8 @@ static ssize_t proc_wireless_user_sleep_mode_write(struct file *file, const char
 		return 0;
 	}
 
-	if (len > 4) {
-		chg_err("len[%d] -EFAULT\n", len);
+	if (len > sizeof(buffer) - 1) {
+		chg_err("len[%zu] -EFAULT\n", len);
 		return -EFAULT;
 	}
 
@@ -10480,9 +10493,9 @@ static ssize_t proc_wireless_user_sleep_mode_write(struct file *file, const char
 		chg_err("copy from user error\n");
 		return -EFAULT;
 	}
-
+	buffer[len] = '\0';
 	chg_err("user mode: buffer=%s\n", buffer);
-	rc = kstrtoint(buffer, 0, &pmw_pulse);
+	rc = kstrtoint(strstrip(buffer), 0, &pmw_pulse);
 	if (rc != 0)
 		return -EINVAL;
 	if (chip->cep_timeout_ack == false)
@@ -10568,7 +10581,7 @@ static ssize_t proc_wireless_idt_adc_test_read(struct file *file, char __user *b
 static ssize_t proc_wireless_idt_adc_test_write(struct file *file, const char __user *buf,
 		size_t len, loff_t *lo)
 {
-	char buffer[4] = {0};
+	char buffer[5] = { 0 };
 	int idt_adc_cmd = 0;
 	int rc;
 	struct oplus_nu1619_ic *chip = nu1619_chip;
@@ -10578,8 +10591,8 @@ static ssize_t proc_wireless_idt_adc_test_write(struct file *file, const char __
 		return 0;
 	}
 
-	if (len > 4) {
-		chg_err("%s: len[%d] -EFAULT.\n", __func__, len);
+	if (len > sizeof(buffer) - 1) {
+		chg_err("%s: len[%zu] -EFAULT.\n", __func__, len);
 		return -EFAULT;
 	}
 
@@ -10587,8 +10600,8 @@ static ssize_t proc_wireless_idt_adc_test_write(struct file *file, const char __
 		chg_err("%s:  error.\n", __func__);
 		return -EFAULT;
 	}
-
-	rc = kstrtoint(buffer, 0, &idt_adc_cmd);
+	buffer[len] = '\0';
+	rc = kstrtoint(strstrip(buffer), 0, &idt_adc_cmd);
 	if (rc != 0)
 		return -EINVAL;
 	if (idt_adc_cmd == 0) {

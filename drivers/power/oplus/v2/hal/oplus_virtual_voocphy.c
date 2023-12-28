@@ -15,9 +15,11 @@
 #include <linux/regmap.h>
 #include <linux/list.h>
 #include <linux/of_irq.h>
+#ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 #include <soc/oplus/system/boot_mode.h>
 #include <soc/oplus/device_info.h>
 #include <soc/oplus/system/oplus_project.h>
+#endif
 #include <oplus_chg.h>
 #include <oplus_chg_module.h>
 #include <oplus_chg_ic.h>
@@ -53,6 +55,7 @@ struct oplus_virtual_vphy_ic {
 	struct device *dev;
 	struct oplus_chg_ic_dev *ic_dev;
 	struct oplus_chg_ic_dev *vphy;
+	struct oplus_chg_ic_dev *dpdm_switch;
 	struct oplus_virtual_vphy_child *vphy_list;
 	struct oplus_virtual_vphy_gpio gpio;
 	int vphy_num;
@@ -61,6 +64,8 @@ struct oplus_virtual_vphy_ic {
 	enum oplus_chg_vooc_switch_mode switch_mode;
 
 	struct work_struct data_handler_work;
+
+	bool use_dpdm_switch_ic;
 };
 
 
@@ -126,6 +131,14 @@ static int oplus_chg_vphy_init(struct oplus_chg_ic_dev *ic_dev)
 	va = oplus_chg_ic_get_drvdata(ic_dev);
 	node = va->dev->of_node;
 
+	if (va->use_dpdm_switch_ic) {
+		va->dpdm_switch = of_get_oplus_chg_ic(node, "oplus,dpdm_switch_ic", 0);
+		if (va->dpdm_switch == NULL) {
+			chg_debug("dpdm_switch_ic not found\n");
+			return -EAGAIN;
+		}
+	}
+
 	ic_dev->online = true;
 	for (i = 0; i < va->vphy_num; i++) {
 		if (va->vphy_list[i].initialized)
@@ -137,7 +150,7 @@ static int oplus_chg_vphy_init(struct oplus_chg_ic_dev *ic_dev)
 			retry = true;
 			continue;
 		}
-		va->vphy_list[i].ic_dev->parent = ic_dev;
+		oplus_chg_ic_set_parent(va->vphy_list[i].ic_dev, ic_dev);
 		rc = oplus_chg_ic_func(va->vphy_list[i].ic_dev, OPLUS_IC_FUNC_INIT);
 		va->vphy_list[i].initialized = true;
 		if (rc >= 0) {
@@ -186,7 +199,7 @@ static int oplus_chg_vphy_exit(struct oplus_chg_ic_dev *ic_dev)
 	};
 
 	oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_EXIT);
-	ic_dev->parent = NULL;
+	oplus_chg_ic_set_parent(ic_dev, NULL);
 
 	return 0;
 }
@@ -247,30 +260,40 @@ static int oplus_chg_vphy_set_switch_mode(struct oplus_chg_ic_dev *ic_dev,
 		return -ENODEV;
 	}
 	va = oplus_chg_ic_get_drvdata(ic_dev);
-	if (IS_ERR_OR_NULL(va->gpio.pinctrl)) {
-		chg_err("get pinctrl fail\n");
-		goto exit;
-	}
 
-	mutex_lock(&va->gpio.pinctrl_mutex);
 	switch (mode) {
 	case VOOC_SWITCH_MODE_VOOC:
 		do {
-			rc = pinctrl_select_state(
-				va->gpio.pinctrl,
-				va->gpio.vphy_switch_vooc);
-			if (rc < 0) {
-				chg_err("set vphy_switch_vooc error, rc=%d\n",
-					rc);
-				goto err;
-			}
-			rc = pinctrl_select_state(
-				va->gpio.pinctrl,
-				va->gpio.gpio_switch_ctrl_vphy);
-			if (rc < 0) {
-				chg_err("set gpio_switch_ctrl_vphy error, rc=%d\n",
-					rc);
-				goto err;
+			if (va->use_dpdm_switch_ic) {
+				rc = oplus_chg_ic_func(va->dpdm_switch,
+					OPLUS_IC_FUNC_SET_DPDM_SWITCH_MODE, DPDM_SWITCH_TO_VOOC);
+				if (rc < 0) {
+					chg_err("set dpdm switch mode to vooc error, rc=%d\n", rc);
+					goto err;
+				}
+			} else {
+				if (IS_ERR_OR_NULL(va->gpio.pinctrl)) {
+					chg_err("get pinctrl fail\n");
+					goto exit;
+				}
+
+				mutex_lock(&va->gpio.pinctrl_mutex);
+				rc = pinctrl_select_state(
+					va->gpio.pinctrl,
+					va->gpio.vphy_switch_vooc);
+				if (rc < 0) {
+					chg_err("set vphy_switch_vooc error, rc=%d\n", rc);
+					goto err;
+				}
+				rc = pinctrl_select_state(
+					va->gpio.pinctrl,
+					va->gpio.gpio_switch_ctrl_vphy);
+				if (rc < 0) {
+					chg_err("set gpio_switch_ctrl_vphy error, rc=%d\n",
+						rc);
+					goto err;
+				}
+				mutex_unlock(&va->gpio.pinctrl_mutex);
 			}
 			chg_info("switch to vooc mode\n");
 			break;
@@ -282,24 +305,39 @@ static int oplus_chg_vphy_set_switch_mode(struct oplus_chg_ic_dev *ic_dev,
 		break;
 	case VOOC_SWITCH_MODE_NORMAL:
 	default:
-		rc = pinctrl_select_state(va->gpio.pinctrl,
-					  va->gpio.vphy_switch_normal);
-		if (rc < 0) {
-			chg_err("set vphy_switch_normal error, rc=%d\n", rc);
-			goto err;
-		}
-		rc = pinctrl_select_state(va->gpio.pinctrl,
-					  va->gpio.gpio_switch_ctrl_ap);
-		if (rc < 0) {
-			chg_err("set gpio_switch_ctrl_ap error, rc=%d\n", rc);
-			goto err;
+		if (va->use_dpdm_switch_ic) {
+			rc = oplus_chg_ic_func(va->dpdm_switch,
+				OPLUS_IC_FUNC_SET_DPDM_SWITCH_MODE, DPDM_SWITCH_TO_AP);
+			if (rc < 0) {
+				chg_err("set dpdm switch mode to vooc error, rc=%d\n", rc);
+				goto err;
+			}
+		} else {
+			if (IS_ERR_OR_NULL(va->gpio.pinctrl)) {
+				chg_err("get pinctrl fail\n");
+				goto exit;
+			}
+
+			mutex_lock(&va->gpio.pinctrl_mutex);
+			rc = pinctrl_select_state(va->gpio.pinctrl,
+						  va->gpio.vphy_switch_normal);
+			if (rc < 0) {
+				chg_err("set vphy_switch_normal error, rc=%d\n", rc);
+				goto err;
+			}
+			rc = pinctrl_select_state(va->gpio.pinctrl,
+						va->gpio.gpio_switch_ctrl_ap);
+			if (rc < 0) {
+				chg_err("set gpio_switch_ctrl_ap error, rc=%d\n", rc);
+				goto err;
+			}
+			mutex_unlock(&va->gpio.pinctrl_mutex);
 		}
 		chg_info("switch to normal mode\n");
 		break;
 	}
 
 	va->switch_mode = mode;
-	mutex_unlock(&va->gpio.pinctrl_mutex);
 exit:
 	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOC_SET_SWITCH_MODE, mode);
 	if (rc < 0) {
@@ -309,9 +347,14 @@ exit:
 
 	return 0;
 err:
-	pinctrl_select_state(va->gpio.pinctrl, va->gpio.vphy_switch_normal);
-	pinctrl_select_state(va->gpio.pinctrl, va->gpio.gpio_switch_ctrl_ap);
-	mutex_unlock(&va->gpio.pinctrl_mutex);
+	if (!va->use_dpdm_switch_ic) {
+		pinctrl_select_state(va->gpio.pinctrl, va->gpio.vphy_switch_normal);
+		pinctrl_select_state(va->gpio.pinctrl, va->gpio.gpio_switch_ctrl_ap);
+		mutex_unlock(&va->gpio.pinctrl_mutex);
+	} else {
+		oplus_chg_ic_func(va->dpdm_switch,
+			OPLUS_IC_FUNC_SET_DPDM_SWITCH_MODE, DPDM_SWITCH_TO_AP);
+	}
 	return rc;
 }
 
@@ -319,28 +362,35 @@ static int oplus_chg_vphy_get_switch_mode(struct oplus_chg_ic_dev *ic_dev,
 					int *mode)
 {
 	struct oplus_virtual_vphy_ic *va;
-	int switch1_val, switch2_val;
 
 	if (ic_dev == NULL) {
 		chg_err("oplus_chg_ic_dev is NULL");
 		return -ENODEV;
 	}
 	va = oplus_chg_ic_get_drvdata(ic_dev);
+	*mode = va->switch_mode;
 
-	if (!gpio_is_valid(va->gpio.vphy_switch2_gpio))
-		switch2_val = 1;
-	else
-		switch2_val = gpio_get_value(va->gpio.vphy_switch2_gpio);
-	switch1_val = gpio_get_value(va->gpio.vphy_switch1_gpio);
+	return 0;
+}
 
-	if (switch1_val == 0 && switch2_val == 1)
-		*mode = VOOC_SWITCH_MODE_NORMAL;
-	else if (switch1_val == 1 && switch2_val == 1)
-		*mode = VOOC_SWITCH_MODE_VOOC;
-	else if (switch1_val == 1 && switch2_val == 0)
-		*mode = VOOC_SWITCH_MODE_HEADPHONE;
-	else
-		return -EINVAL;
+static int oplus_chg_vphy_reset_sleep(struct oplus_chg_ic_dev *ic_dev)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOC_RESET_SLEEP);
+	if (rc < 0)
+		chg_err("voocphy reset sleep error, rc=%d\n", rc);
 
 	return 0;
 }
@@ -393,6 +443,186 @@ static int oplus_chg_vphy_get_cp_vbat(struct oplus_chg_ic_dev *ic_dev,
 	return rc;
 }
 
+static int oplus_chg_vphy_set_bcc_curr(struct oplus_chg_ic_dev *ic_dev,
+				      int *cp_data)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+	if (cp_data == NULL) {
+		chg_err("cp_data is NULL");
+		return -ENODEV;
+	}
+
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR,
+			       cp_data);
+	if (rc < 0)
+		chg_err("get cp vbat error, rc=%d\n", rc);
+
+	chg_info("curr is %d\n", *cp_data);
+	return rc;
+}
+
+static int oplus_chg_vphy_set_ucp_time(struct oplus_chg_ic_dev *ic_dev, int value)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_SET_UCP_TIME,
+			       value);
+	if (rc < 0)
+		chg_err("set ucp time error, rc=%d\n", rc);
+
+	return rc;
+}
+
+
+static int oplus_chg_vphy_get_bcc_max_curr(struct oplus_chg_ic_dev *ic_dev,
+				      int *cp_data)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MAX_CURR,
+			       cp_data);
+	if (rc < 0)
+		chg_err("get vphy bcc max curr error, rc=%d\n", rc);
+
+	return rc;
+}
+
+static int oplus_chg_vphy_get_bcc_min_curr(struct oplus_chg_ic_dev *ic_dev,
+				      int *cp_data)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MIN_CURR,
+			       cp_data);
+	if (rc < 0)
+		chg_err("get vphy bcc min curr error, rc=%d\n", rc);
+
+	return rc;
+}
+
+static int oplus_chg_vphy_get_bcc_exit_curr(struct oplus_chg_ic_dev *ic_dev,
+				      int *cp_data)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_EXIT_CURR,
+			       cp_data);
+	if (rc < 0)
+		chg_err("get vphy bcc exit curr error, rc=%d\n", rc);
+
+	return rc;
+}
+
+static int oplus_chg_vphy_get_fastchg_ing(struct oplus_chg_ic_dev *ic_dev,
+				      int *cp_data)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_FASTCHG_ING,
+			       cp_data);
+	if (rc < 0)
+		chg_err("get vphy fastchg ing error, rc=%d\n", rc);
+
+	return rc;
+}
+
+static int oplus_chg_vphy_get_bcc_temp_range(struct oplus_chg_ic_dev *ic_dev,
+				      int *cp_data)
+{
+	int rc;
+	struct oplus_virtual_vphy_ic *va;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	if (va->vphy == NULL) {
+		chg_err("no active vphy found");
+		return -ENODEV;
+	}
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_BCC_TEMP_RANGE,
+			       cp_data);
+	if (rc < 0)
+		chg_err("get vphy bcc temp range error, rc=%d\n", rc);
+
+	return rc;
+}
+
 static int oplus_chg_vphy_set_chg_auto_mode(struct oplus_chg_ic_dev *ic_dev,
 					    bool enable)
 {
@@ -434,6 +664,77 @@ static int oplus_chg_vphy_get_vphy(struct oplus_chg_ic_dev *ic_dev,
 	*vphy = va->vphy;
 
 	return 0;
+}
+
+static int oplus_chg_vphy_get_curve_current(struct oplus_chg_ic_dev *ic_dev, int *curr)
+{
+	struct oplus_virtual_vphy_ic *va;
+	int rc;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR, curr);
+	if (rc < 0)
+		chg_err("failed to get curve current, rc=%d\n", rc);
+
+	return rc;
+}
+
+static int oplus_chg_vphy_get_real_curve_current(struct oplus_chg_ic_dev *ic_dev, int *curr)
+{
+	struct oplus_virtual_vphy_ic *va;
+	int rc;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOC_GET_REAL_CURVE_CURR, curr);
+	if (rc < 0)
+		chg_err("failed to get real curve current, rc=%d\n", rc);
+
+	return rc;
+}
+
+static int oplus_chg_vphy_set_ap_fastchg_allow(struct oplus_chg_ic_dev *ic_dev, int allow, bool dummy)
+{
+	struct oplus_virtual_vphy_ic *va;
+	int rc;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_SET_AP_FASTCHG_ALLOW, allow, dummy);
+	if (rc < 0)
+		chg_err("oplus_chg_vphy_set_ap_fastchg_allow, rc=%d\n", rc);
+
+	return rc;
+}
+
+static int oplus_chg_vphy_get_retry_flag(struct oplus_chg_ic_dev *ic_dev, bool *retry_flag)
+{
+	struct oplus_virtual_vphy_ic *va;
+	int rc;
+
+	if (ic_dev == NULL) {
+		chg_err("oplus_chg_ic_dev is NULL");
+		return -ENODEV;
+	}
+	va = oplus_chg_ic_get_drvdata(ic_dev);
+
+	rc = oplus_chg_ic_func(va->vphy, OPLUS_IC_FUNC_VOOCPHY_GET_RETRY_FLAG, retry_flag);
+	if (rc < 0)
+		chg_err("failed to get retry flag, rc=%d\n", rc);
+
+	return rc;
 }
 
 static void *oplus_chg_vphy_get_func(struct oplus_chg_ic_dev *ic_dev,
@@ -482,6 +783,30 @@ static void *oplus_chg_vphy_get_func(struct oplus_chg_ic_dev *ic_dev,
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_CP_VBAT,
 					       oplus_chg_vphy_get_cp_vbat);
 		break;
+	case OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_SET_BCC_CURR,
+					       oplus_chg_vphy_set_bcc_curr);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MAX_CURR:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MAX_CURR,
+					       oplus_chg_vphy_get_bcc_max_curr);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MIN_CURR:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_MIN_CURR,
+					       oplus_chg_vphy_get_bcc_min_curr);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_EXIT_CURR:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_EXIT_CURR,
+					       oplus_chg_vphy_get_bcc_exit_curr);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_GET_FASTCHG_ING:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_FASTCHG_ING,
+					       oplus_chg_vphy_get_fastchg_ing);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_GET_BCC_TEMP_RANGE:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_BCC_TEMP_RANGE,
+					       oplus_chg_vphy_get_bcc_temp_range);
+		break;
 	case OPLUS_IC_FUNC_VOOCPHY_SET_CHG_AUTO_MODE:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_SET_CHG_AUTO_MODE,
 					       oplus_chg_vphy_set_chg_auto_mode);
@@ -489,6 +814,30 @@ static void *oplus_chg_vphy_get_func(struct oplus_chg_ic_dev *ic_dev,
 	case OPLUS_IC_FUNC_VOOC_GET_IC_DEV:
 		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOC_GET_IC_DEV,
 					       oplus_chg_vphy_get_vphy);
+		break;
+	case OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR,
+					       oplus_chg_vphy_get_curve_current);
+		break;
+	case OPLUS_IC_FUNC_VOOC_RESET_SLEEP:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOC_RESET_SLEEP,
+					       oplus_chg_vphy_reset_sleep);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_SET_UCP_TIME:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_SET_UCP_TIME,
+					       oplus_chg_vphy_set_ucp_time);
+		break;
+	case OPLUS_IC_FUNC_VOOC_GET_REAL_CURVE_CURR:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOC_GET_REAL_CURVE_CURR,
+					       oplus_chg_vphy_get_real_curve_current);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_SET_AP_FASTCHG_ALLOW:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_SET_AP_FASTCHG_ALLOW,
+					       oplus_chg_vphy_set_ap_fastchg_allow);
+		break;
+	case OPLUS_IC_FUNC_VOOCPHY_GET_RETRY_FLAG:
+		func = OPLUS_CHG_IC_FUNC_CHECK(OPLUS_IC_FUNC_VOOCPHY_GET_RETRY_FLAG,
+					       oplus_chg_vphy_get_retry_flag);
 		break;
 	default:
 		chg_err("this func(=%d) is not supported\n", func_id);
@@ -537,6 +886,9 @@ static int oplus_vphy_gpio_init(struct oplus_virtual_vphy_ic *chip)
 	struct device_node *node = chip->dev->of_node;
 	struct oplus_virtual_vphy_gpio *vphy_gpio = &chip->gpio;
 	int rc = 0;
+
+	if (chip->use_dpdm_switch_ic)
+		return 0;
 
 	vphy_gpio->pinctrl = devm_pinctrl_get(chip->dev);
 	if (IS_ERR_OR_NULL(vphy_gpio->pinctrl)) {
@@ -665,6 +1017,10 @@ static int oplus_virtual_vphy_probe(struct platform_device *pdev)
 
 	INIT_WORK(&chip->data_handler_work, oplus_vphy_data_handler_work);
 
+	chip->use_dpdm_switch_ic = of_property_read_bool(node, "oplus,dpdm_switch_ic");
+	if (chip->use_dpdm_switch_ic)
+		chg_info("user dpdm switch ic");
+
 	rc = oplus_vphy_gpio_init(chip);
 	if (rc < 0)
 		chg_err("gpio init error, rc=%d\n", rc);
@@ -689,12 +1045,13 @@ static int oplus_virtual_vphy_probe(struct platform_device *pdev)
 
 	ic_cfg.name = node->name;
 	ic_cfg.index = ic_index;
-	sprintf(ic_cfg.manu_name, "virtual vphy");
-	sprintf(ic_cfg.fw_id, "0x00");
+	snprintf(ic_cfg.manu_name, OPLUS_CHG_IC_MANU_NAME_MAX - 1, "voocphy-virtual");
+	snprintf(ic_cfg.fw_id, OPLUS_CHG_IC_FW_ID_MAX - 1, "0x00");
 	ic_cfg.type = ic_type;
 	ic_cfg.get_func = oplus_chg_vphy_get_func;
 	ic_cfg.virq_data = oplus_vphy_virq_table;
 	ic_cfg.virq_num = ARRAY_SIZE(oplus_vphy_virq_table);
+	ic_cfg.of_node = node;
 	chip->ic_dev =
 		devm_oplus_chg_ic_register(chip->dev, &ic_cfg);
 	if (!chip->ic_dev) {

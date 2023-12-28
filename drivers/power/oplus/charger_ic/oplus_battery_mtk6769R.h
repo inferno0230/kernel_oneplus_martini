@@ -59,6 +59,11 @@ struct charger_manager;
 #define BQ2591X 3
 #define SY6974 4
 #define SGM41512 8
+#define SC6607 9
+#define PORT_ERROR 0
+#define PORT_A 1
+#define PORT_PD_WITH_USB 2
+#define PORT_PD_WITHOUT_USB 3
 
 typedef enum {
         OPLUS_MINI_USB_TYPE = 0,
@@ -86,10 +91,25 @@ typedef enum {
         BATT_TEMP_EXTEND_ABOVE_T7
 }OPLUS_CHG_BATT_TEMP_EXTEND_STAT;
 
+enum {
+	CHARGER_NORMAL_CHG_CURVE,
+	CHARGER_FASTCHG_SVOOC_CURVE,
+	CHARGER_FASTCHG_VOOC_AND_QCPD_CURVE,
+};
+
 struct master_chg_psy {
 	struct device *dev;
 	struct power_supply_desc mastercharger_psy_desc;
 	struct power_supply_config mastercharger_psy_cfg;
 	struct power_supply *mastercharger_psy;
+};
+
+struct charger_manager_drvdata {
+	struct charger_manager *pinfo;
+	bool external_cclogic;
+};
+
+struct mtk_pmic {
+	struct charger_manager* oplus_info;
 };
 #endif /* __OPLUS_BATTERY_MTK6768_H__ */

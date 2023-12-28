@@ -202,7 +202,8 @@ int oplus_switching_get_if_need_balance_bat(int vbat0_mv, int vbat1_mv)
 			}
 		}
 
-		if (oplus_switching_support_parallel_chg() == PARALLEL_MOS_CTRL && atomic_read(&chip->mos_lock)) {
+		if (oplus_switching_support_parallel_chg() == PARALLEL_MOS_CTRL && atomic_read(&chip->mos_lock) &&
+		    fg_error_count == 0) {
 			if (chip->tbatt_status != BATTERY_STATUS__WARM_TEMP
 			    && (chip->sw_sub_batt_full || chip->hw_sub_batt_full_by_sw)
 			    && !(chip->sw_full || chip->hw_full_by_sw)
@@ -211,7 +212,9 @@ int oplus_switching_get_if_need_balance_bat(int vbat0_mv, int vbat1_mv)
 			    && chip->mmi_chg) {
 		    		error_reason |= REASON_SUB_BATT_FULL;
 			}
-			if (diff_volt >= g_switching_chip->parallel_vbat_gap_abnormal) {
+			if ((diff_volt >= g_switching_chip->parallel_vbat_gap_abnormal)
+			    || ((diff_volt >= g_switching_chip->parallel_vbat_gap_recov)
+			    && (pre_error_reason & REASON_VBAT_GAP_BIG))) {
 				error_reason |= REASON_VBAT_GAP_BIG;
 			}
 			if ((pre_error_reason & REASON_SUB_BATT_FULL)
@@ -485,11 +488,8 @@ static void track_mos_err_load_trigger_work(
 			dwork, struct oplus_switch_chip,
 			parallel_mos_trigger_work);
 
-	if (!chip)
-		return;
-
-	oplus_chg_track_upload_trigger_data(*(chip->mos_err_load_trigger));
 	if (chip->mos_err_load_trigger) {
+		oplus_chg_track_upload_trigger_data(*(chip->mos_err_load_trigger));
 		kfree(chip->mos_err_load_trigger);
 		chip->mos_err_load_trigger = NULL;
 	}
@@ -562,7 +562,7 @@ int oplus_chg_track_parallel_mos_error(int reason)
 
 	index += snprintf(&(g_switching_chip->mos_err_load_trigger->crux_info[index]),
 			  OPLUS_CHG_TRACK_CURX_INFO_LEN - index,
-			  "$$error_reason@@");
+			  "$$err_reason@@");
 	switch (reason) {
 	case REASON_SOC_NOT_FULL:
 	case REASON_CURRENT_UNBALANCE:
@@ -760,8 +760,8 @@ static void parallel_battery_anti_shake_handle(int status_change, int main_temp,
 {
 	struct oplus_switch_chip *chip = g_switching_chip;
 	struct oplus_chg_chip *chg_chip = oplus_chg_get_chg_struct();
-	int tbatt_cur_shake, low_shake, high_shake;
-	int low_shake_0c, high_shake_0c;
+	int tbatt_cur_shake, low_shake = 0, high_shake = 0;
+	int low_shake_0c = 0, high_shake_0c = 0;
 
 	if (status_change == MAIN_STATUS_CHG || status_change == ALL_STATUS_CHG) {
 		tbatt_cur_shake = main_temp;

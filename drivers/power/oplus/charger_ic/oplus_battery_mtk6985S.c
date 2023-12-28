@@ -135,6 +135,7 @@ extern void oplus_notify_hvdcp_detect_stat(void);
 extern void oplus_set_hvdcp_flag_clear(void);
 void oplus_otg_enable_by_buckboost(void);
 void oplus_otg_disable_by_buckboost(void);
+int chr_get_debug_level(void);
 extern bool tcpm_is_floating_ground(struct tcpc_device *tcpc);
 extern bool mt6375_int_chrdet_attach(void);
 
@@ -469,9 +470,20 @@ bool is_charger_exist(struct mtk_charger *info)
 
 int get_charger_type(struct mtk_charger *info)
 {
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	union power_supply_propval prop, prop2, prop3;
+#else
+	union power_supply_propval prop = { 0 };
+	union power_supply_propval prop2 = { 0 };
+	union power_supply_propval prop3 = { 0 };
+#endif
 	static struct power_supply *chg_psy;
 	int ret;
+
+	/* add for variables init */
+	prop.intval = 0;
+	prop2.intval = POWER_SUPPLY_TYPE_USB;
+	prop3.intval = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 
 	chg_psy = info->chg_psy;
 
@@ -509,11 +521,20 @@ int get_charger_type(struct mtk_charger *info)
 
 int get_usb_type(struct mtk_charger *info)
 {
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	union power_supply_propval prop, prop2;
+#else
+	union power_supply_propval prop = { 0 };
+	union power_supply_propval prop2 = { 0 };
+#endif
 	static struct power_supply *chg_psy;
 	int ret;
 
 	chg_psy = info->chg_psy;
+
+	/* add for variables init */
+        prop.intval = 0;
+        prop2.intval = POWER_SUPPLY_USB_TYPE_UNKNOWN;
 
 	if (chg_psy == NULL || IS_ERR(chg_psy)) {
 		chr_err("%s retry to get chg_psy\n", __func__);
@@ -750,9 +771,9 @@ void _wake_up_charger(struct mtk_charger *info)
 {
 	unsigned long flags;
 
-	info->timer_cb_duration[2] = ktime_get_boottime();
 	if (info == NULL)
 		return;
+	info->timer_cb_duration[2] = ktime_get_boottime();
 
 	spin_lock_irqsave(&info->slock, flags);
 	info->timer_cb_duration[3] = ktime_get_boottime();
@@ -2239,12 +2260,19 @@ static ssize_t enable_sc_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[enable smartcharging] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if (ret < 0) {
+			chr_err("[enable smartcharging] ret is %d ??\n", ret);
+			val = 0;
+		}
+#else
 		if (val < 0) {
 			chr_err(
 				"[enable smartcharging] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
+#endif
 
 		if (val == 0)
 			info->sc.enable = false;
@@ -2303,15 +2331,14 @@ static ssize_t sc_stime_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging stime] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
-		if (val < 0) {
+		if (ret < 0) {
 			chr_err(
 				"[smartcharging stime] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
 
-		if (val >= 0)
-			info->sc.start_time = val;
+		info->sc.start_time = val;
 
 		chr_err(
 			"[smartcharging stime]enable smartcharging=%d\n",
@@ -2365,15 +2392,14 @@ static ssize_t sc_etime_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging etime] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
-		if (val < 0) {
+		if (ret < 0) {
 			chr_err(
 				"[smartcharging etime] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
 
-		if (val >= 0)
-			info->sc.end_time = val;
+		info->sc.end_time = val;
 
 		chr_err(
 			"[smartcharging stime]enable smartcharging=%d\n",
@@ -2427,15 +2453,20 @@ static ssize_t sc_tuisoc_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging tuisoc] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if (ret < 0) {
+			chr_err("[smartcharging tuisoc] ret is %d ??\n", ret);
+			val = 0;
+		}
+#else
 		if (val < 0) {
 			chr_err(
 				"[smartcharging tuisoc] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
-
-		if (val >= 0)
-			info->sc.target_percentage = val;
+#endif
+		info->sc.target_percentage = val;
 
 		chr_err(
 			"[smartcharging stime]tuisoc=%d\n",
@@ -2489,15 +2520,20 @@ static ssize_t sc_ibat_limit_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging ibat limit] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if (ret < 0) {
+			chr_err("[smartcharging ibat limit] ret is %d ??\n", ret);
+			val = 0;
+		}
+#else
 		if (val < 0) {
 			chr_err(
 				"[smartcharging ibat limit] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
-
-		if (val >= 0)
-			info->sc.current_limit = val;
+#endif
+		info->sc.current_limit = val;
 
 		chr_err(
 			"[smartcharging ibat limit]=%d\n",
@@ -3807,6 +3843,10 @@ int notify_adapter_event(struct notifier_block *notifier,
 			pinfo->notify_code &= ~CHG_TYPEC_WD_STATUS;
 		mtk_chgstat_notify(pinfo);
 		break;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	default:
+		break;
+#endif
 	}
 	return NOTIFY_DONE;
 }
@@ -4124,6 +4164,8 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 			break;
 		}
 		chg_debug("pd_wait_hard_reset_complete: %d\n", pinfo->wait_hard_reset_complete);
+		break;
+	default:
 		break;
 	}
 	return ret;
@@ -4683,11 +4725,16 @@ static __s16 oplus_ts_ch_volt_to_temp(__u32 dwvolt)
 
 	return chg_tmp;
 }
-
+#define OPLUS_CHARGER_IC_DEFAULT 25
 int oplus_get_chargeric_temp(void)
 {
 	int val = 0;
 	int ret = 0, output;
+
+	if (!pinfo) {
+		chg_err("pinfo is null, set charger_ic temp as default 25C!\n");
+		return OPLUS_CHARGER_IC_DEFAULT;
+	}
 
 	if (pinfo && pinfo->chargeric_temp_chan) {
 		ret = iio_read_channel_processed(pinfo->chargeric_temp_chan, &val);
@@ -4782,6 +4829,14 @@ static int oplus_chg_shipmode_parse_dt(struct oplus_chg_chip *chip)
 
 	return rc;
 }
+
+int oplus_force_get_subboard_temp(void)
+{
+/* todo */
+	return 0;
+}
+EXPORT_SYMBOL(oplus_force_get_subboard_temp);
+
 
 static bool oplus_usbtemp_check_is_gpio(struct oplus_chg_chip *chip)
 {
@@ -5988,9 +6043,6 @@ static int battery_get_property(struct power_supply *psy,
 			if (g_oplus_chip) {
 				val->intval = g_oplus_chip->batt_fcc * 1000;
 			}
-			break;
-		case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
-			val->intval = 0;
 			break;
 		default:
 			rc = oplus_battery_get_property(psy, psp, val);

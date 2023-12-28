@@ -178,7 +178,6 @@ extern int mt6375_set_hvdcp_to_5v(void);
 extern int mt6375_set_hvdcp_to_9v(void);
 extern void oplus_notify_hvdcp_detect_stat(void);
 extern void oplus_set_hvdcp_flag_clear(void);
-/*extern void oplus_chg_sc8571_error( int report_flag, int *buf, int ret);*/
 
 static void smbchg_enter_shipmode(struct oplus_chg_chip *chip);
 
@@ -367,7 +366,11 @@ int get_battery_current(struct mtk_charger *info)
 
 static int get_pmic_vbus(struct mtk_charger *info, int *vchr)
 {
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	union power_supply_propval prop;
+#else
+	union power_supply_propval prop = { 0 };
+#endif
 	static struct power_supply *chg_psy;
 	int ret;
 
@@ -505,7 +508,13 @@ bool is_charger_exist(struct mtk_charger *info)
 
 int get_charger_type(struct mtk_charger *info)
 {
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	union power_supply_propval prop, prop2, prop3;
+#else
+	union power_supply_propval prop = { 0 };
+	union power_supply_propval prop2 = { 0 };
+	union power_supply_propval prop3 = { 0 };
+#endif
 	static struct power_supply *chg_psy;
 	int ret;
 
@@ -545,7 +554,12 @@ int get_charger_type(struct mtk_charger *info)
 
 int get_usb_type(struct mtk_charger *info)
 {
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	union power_supply_propval prop, prop2;
+#else
+	union power_supply_propval prop = { 0 };
+	union power_supply_propval prop2 = { 0 };
+#endif
 	static struct power_supply *chg_psy;
 	int ret;
 
@@ -786,9 +800,9 @@ void _wake_up_charger(struct mtk_charger *info)
 {
 	unsigned long flags;
 
-	info->timer_cb_duration[2] = ktime_get_boottime();
 	if (info == NULL)
 		return;
+	info->timer_cb_duration[2] = ktime_get_boottime();
 
 	spin_lock_irqsave(&info->slock, flags);
 	info->timer_cb_duration[3] = ktime_get_boottime();
@@ -2292,12 +2306,19 @@ static ssize_t enable_sc_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[enable smartcharging] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if (ret < 0) {
+			chr_err("[enable smartcharging] ret is %d ??\n", ret);
+			val = 0;
+		}
+#else
 		if (val < 0) {
 			chr_err(
 				"[enable smartcharging] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
+#endif
 
 		if (val == 0)
 			info->sc.enable = false;
@@ -2323,7 +2344,7 @@ static ssize_t shipmode_test_store(
                 chr_err("[smartcharging] buf is %s\n", buf);
                 ret = kstrtoul(buf, 10, &val);
 		chr_err("[smartcharging] val is %d \n", (int)val);
-                if (val < 0) {
+                if (ret < 0) {
                         val = 0;
                 }
 		if (val == 1) {
@@ -2380,18 +2401,8 @@ static ssize_t sc_stime_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging stime] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
-		if (val < 0) {
-			chr_err(
-				"[smartcharging stime] val is %d ??\n",
-				(int)val);
-			val = 0;
-		}
-
-		if (val >= 0)
-			info->sc.start_time = val;
-
-		chr_err(
-			"[smartcharging stime]enable smartcharging=%d\n",
+		info->sc.start_time = val;
+		chr_err("[smartcharging stime]enable smartcharging=%d\n",
 			info->sc.start_time);
 	}
 	return size;
@@ -2442,7 +2453,7 @@ static ssize_t sc_etime_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging etime] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
-		if (val < 0) {
+		if (ret < 0) {
 			chr_err(
 				"[smartcharging etime] val is %d ??\n",
 				(int)val);
@@ -2504,12 +2515,19 @@ static ssize_t sc_tuisoc_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging tuisoc] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if (ret < 0) {
+			chr_err("[smartcharging tuisoc] val is %d ??\n", ret);
+			val = 0;
+		}
+#else
 		if (val < 0) {
 			chr_err(
 				"[smartcharging tuisoc] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
+#endif
 
 		if (val >= 0)
 			info->sc.target_percentage = val;
@@ -2566,15 +2584,21 @@ static ssize_t sc_ibat_limit_store(
 	if (buf != NULL && size != 0) {
 		chr_err("[smartcharging ibat limit] buf is %s\n", buf);
 		ret = kstrtoul(buf, 10, &val);
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if (ret < 0) {
+			chr_err("[smartcharging ibat limit] ret is %d ??\n", ret);
+			val = 0;
+		}
+#else
 		if (val < 0) {
 			chr_err(
 				"[smartcharging ibat limit] val is %d ??\n",
 				(int)val);
 			val = 0;
 		}
+#endif
 
-		if (val >= 0)
-			info->sc.current_limit = val;
+		info->sc.current_limit = val;
 
 		chr_err(
 			"[smartcharging ibat limit]=%d\n",
@@ -3788,7 +3812,12 @@ int psy_charger_set_property(struct power_supply *psy,
 static void mtk_charger_external_power_changed(struct power_supply *psy)
 {
 	struct mtk_charger *info;
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	union power_supply_propval prop, prop2;
+#else
+	union power_supply_propval prop = { 0 };
+	union power_supply_propval prop2 = { 0 };
+#endif
 	struct power_supply *chg_psy = NULL;
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	struct oplus_chg_chip *chip = g_oplus_chip;
@@ -3951,6 +3980,10 @@ int notify_adapter_event(struct notifier_block *notifier,
 			pinfo->notify_code &= ~CHG_TYPEC_WD_STATUS;
 		mtk_chgstat_notify(pinfo);
 		break;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	default:
+		break;
+#endif
 	}
 	return NOTIFY_DONE;
 }
@@ -4858,14 +4891,16 @@ bool oplus_pps_check_authen_data(void)
 	uint32_t  key[4] = {0};
 	uint32_t  new_key[4] = {0};
 	int i;
+	struct oplus_pps_chip *pps_chip;
 
+	pps_chip = oplus_pps_get_pps_chip();
 	memcpy(key, publick_key, sizeof(uint32_t) * 4);
 
 	setup_new_key(new_key,key);
 	tea_encrypt_process(new_key);
 	for(i=0;i < 4;i++){
 		if(pps_adapter_result[i] != pps_phone_result[i]) {
-			/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_AUTH_FAIL), NULL, i);*/
+			oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_AUTH_FAIL, i);
 			return false;
 		}
 	}
@@ -4916,12 +4951,14 @@ int oplus_pps_get_authenticate(void)
 }
 
 static bool oplus_pps_check_adapter_maxi(struct oplus_chg_chip *chip)
-{	
+{
 	int i, imax = 0, vmax = 0;
 	int ret;
 	struct tcp_dpm_custom_vdm_data vdm_data;
 	struct tcpc_device *tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
+	struct oplus_pps_chip *pps_chip;
 
+	pps_chip = oplus_pps_get_pps_chip();
 	vdm_data.cnt = 2;
 	vdm_data.wait_resp = true;
 	vdm_data.vdos[0] = PD_UVDM_HDR(OPLUS_SVID, OPLUS_UVDM_POWER_CMD);
@@ -4941,15 +4978,15 @@ static bool oplus_pps_check_adapter_maxi(struct oplus_chg_chip *chip)
 			return true;
 		} else if ((imax > OPLUS_PPS_IMIN_V1) && (vmax >= OPLUS_EXTEND_VMIN )) {
 			oplus_pps_set_power(OPLUS_PPS_POWER_V1, imax, vmax);
-			/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V1), NULL, imax);*/
+			oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V1, imax);
 			return false;
 		} else {
-			/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_POWER_V0), NULL, imax);*/
-			oplus_pps_set_power(OPLUS_PPS_POWER_CLR,0 ,0);		
+			oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_POWER_V0, imax);
+			oplus_pps_set_power(OPLUS_PPS_POWER_CLR, 0, 0);
 			return false;
 		}
 	} else {
-		/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_UVDM_POWER), NULL, ret);*/
+		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_UVDM_POWER, ret);
 		pr_info("%s tcpm_dpm_send_custom_vdm fail(%d)\n", __func__, ret);
 		return false;
 	}
@@ -4963,7 +5000,9 @@ static int oplus_pps_enable_extended_maxi(struct oplus_chg_chip *chip)
 	uint32_t extended_bit, extended_num;
 	struct tcp_dpm_custom_vdm_data vdm_data;
 	struct tcpc_device *tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
-	
+	struct oplus_pps_chip *pps_chip;
+
+	pps_chip = oplus_pps_get_pps_chip();
 	vdm_data.cnt = 2;
 	vdm_data.wait_resp = true;
 	vdm_data.vdos[0] = PD_UVDM_HDR(OPLUS_SVID, OPLUS_UVDM_EXAPDO_CMD);
@@ -4977,7 +5016,7 @@ static int oplus_pps_enable_extended_maxi(struct oplus_chg_chip *chip)
 			pr_info("%s receive uvdm_data2[%d] = 0x%08x\n",
 					__func__, i, vdm_data.vdos[i]);
 	} else {
-		/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_EXTEND_MAXI), NULL, ret);*/
+		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_EXTEND_MAXI, ret);
 		pr_info("%s tcpm_dpm_send_custom_vdm fail(%d)\n", __func__, ret);
 		return ret;
 	}
@@ -5002,10 +5041,12 @@ extern int tcpc_dual_role_set_prop_dr(struct typec_port *port, enum typec_data_r
 
 static int oplus_pps_tcpc_set_dr(struct oplus_chg_chip *chip, enum typec_data_role data)
 {
-	struct tcpc_device *tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
+	struct tcpc_device *tcpc_dev = NULL;
 
+	tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
 	if (tcpm_inquire_pd_data_role(tcpc_dev) != data) {
-		return tcpm_dpm_pd_data_swap(tcpc_dev, data, NULL);
+		if (tcpc_dev != NULL)
+			return tcpm_dpm_pd_data_swap(tcpc_dev, data, NULL);
 	}
 	return 0;
 }
@@ -5014,9 +5055,12 @@ void oplus_pps_get_source_cap(void);
 void oplus_pps_get_adapter_status(struct oplus_chg_chip *chip)
 {
 	int ret = 0;
-	ret = oplus_pps_tcpc_set_dr(chip, TYPEC_HOST);	
+	struct oplus_pps_chip *pps_chip;
+
+	pps_chip = oplus_pps_get_pps_chip();
+	ret = oplus_pps_tcpc_set_dr(chip, TYPEC_HOST);
 	if (ret != 0) {
-		/*oplus_chg_sc8571_error((1 << PPS_REPORT_ERROR_DR_FAIL), NULL, ret);*/
+		oplus_pps_track_upload_err_info(pps_chip, TRACK_PPS_ERR_DR_FAIL, ret);
 		chg_err("oplus_pps_tcpc_set_dr ret = %d\n",ret);
 		return ;
 	}
@@ -5428,6 +5472,8 @@ static int pd_tcp_notifier_call(struct notifier_block *pnb,
 			break;
 		}
 		pr_err("pd_wait_hard_reset_complete: %d\n", pinfo->wait_hard_reset_complete);
+		break;
+	default:
 		break;
 	}
 	return ret;
@@ -6407,12 +6453,12 @@ void oplus_wd0_detect_work(struct work_struct *work)
 	if (level != 1) {
 		oplus_wake_up_usbtemp_thread();
 	} else {
-		if (g_oplus_chip)
+		if (g_oplus_chip) {
 			g_oplus_chip->usbtemp_check = oplus_usbtemp_condition();
-
-		if (g_oplus_chip->usb_status == USB_TEMP_HIGH) {
-			if (usbtemp_recover_work.work.func) {
-				schedule_delayed_work(&usbtemp_recover_work, 0);
+			if (g_oplus_chip->usb_status == USB_TEMP_HIGH) {
+				if (usbtemp_recover_work.work.func) {
+					schedule_delayed_work(&usbtemp_recover_work, 0);
+				}
 			}
 		}
 		oplus_chg_clear_abnormal_adapter_var();
@@ -7101,9 +7147,6 @@ static int battery_get_property(struct power_supply *psy,
 			if (g_oplus_chip) {
 				val->intval = g_oplus_chip->batt_fcc * 1000;
 			}
-			break;
-		case POWER_SUPPLY_PROP_TIME_TO_FULL_NOW:
-			val->intval = 0;
 			break;
 		default:
 			rc = oplus_battery_get_property(psy, psp, val);
@@ -7830,6 +7873,21 @@ int oplus_chg_get_pd_type(void)
 }
 EXPORT_SYMBOL(oplus_chg_get_pd_type);
 
+int oplus_check_cc_mode(void) {
+	int ret = -EINVAL;
+	const char *tcpc_name = "type_c_port0";
+	struct tcpc_device *tcpc_dev;
+
+	tcpc_dev = tcpc_dev_get_by_name(tcpc_name);
+	if (IS_ERR_OR_NULL(tcpc_dev)) {
+		chg_err("tcpc info error\n");
+		return ret;
+	}
+
+	ret = tcpm_inquire_typec_role(tcpc_dev);
+	return ret;
+}
+
 int oplus_chg_set_pps_config(int vbus_mv, int ibus_ma)
 {
 	int ret = 0;
@@ -8158,6 +8216,7 @@ struct oplus_chg_operations  mtk6375_chg_ops = {
 	.usb_disconnect = mt_usb_disconnect,
 	.get_platform_gauge_curve = oplus_chg_choose_gauge_curve,
 	.get_charger_current = oplus_mt6375_get_chg_ibus,
+	.check_cc_mode = oplus_check_cc_mode,
 #else /* CONFIG_OPLUS_CHARGER_MTK */
 	.get_charger_type = qpnp_charger_type_get,
 	.get_charger_volt = qpnp_get_prop_charger_voltage_now,

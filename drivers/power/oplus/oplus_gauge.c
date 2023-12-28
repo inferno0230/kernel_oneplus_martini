@@ -253,10 +253,11 @@ int oplus_gauge_get_batt_temperature(void)
 
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 		if (get_eng_version() == HIGH_TEMP_AGING || oplus_is_ptcrb_version()) {
-			chg_err("[OPLUS_CHG]CONFIG_HIGH_TEMP_VERSION enable here,"
-				"disable high tbat shutdown\n");
-			if (batt_temp > 690)
+			if (batt_temp > 690) {
+                        	chg_err("[OPLUS_CHG]CONFIG_HIGH_TEMP_VERSION enable here,"
+                                	"disable high tbat shutdown\n");
 				batt_temp = 690;
+			}
 		}
 #endif
 		return batt_temp;
@@ -547,6 +548,20 @@ int oplus_gauge_get_prev_batt_mvolts(void)
 	}
 }
 
+int oplus_gauge_get_sub_prev_batt_mvolts(void)
+{
+	if (!g_sub_gauge_chip || !g_sub_gauge_chip->gauge_ops || !g_sub_gauge_chip->gauge_ops->get_prev_battery_mvolts) {
+		return 3800;
+	} else {
+		if (sub_gauge_dbg_vbat != 0) {
+			chg_err("[OPLUS_CHG]%s:debug enabled,voltage sub_gauge_dbg_vbat[%d] \n", __func__,
+				sub_gauge_dbg_vbat);
+			return sub_gauge_dbg_vbat;
+		}
+		return g_sub_gauge_chip->gauge_ops->get_prev_battery_mvolts();
+	}
+}
+
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_FAULT_INJECT_CHG)
 noinline
 #endif
@@ -593,10 +608,11 @@ int oplus_gauge_get_prev_batt_temperature(void)
 
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 		if (get_eng_version() == HIGH_TEMP_AGING || oplus_is_ptcrb_version()) {
-			chg_err("[OPLUS_CHG]CONFIG_HIGH_TEMP_VERSION enable here,"
-				"disable high tbat shutdown \n");
-			if (batt_temp > 690)
+			if (batt_temp > 690) {
+				chg_err("[OPLUS_CHG]CONFIG_HIGH_TEMP_VERSION enable here,"
+					"disable high tbat shutdown \n");
 				batt_temp = 690;
+			}
 		}
 #endif
 		return batt_temp;
@@ -842,10 +858,11 @@ int oplus_gauge_get_sub_batt_temperature(void)
 
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 		if (get_eng_version() == HIGH_TEMP_AGING || oplus_is_ptcrb_version()) {
-			chg_err("[OPLUS_CHG]CONFIG_HIGH_TEMP_VERSION enable here,"
-				"disable high tbat shutdown\n");
-			if (batt_temp > 690)
+			if (batt_temp > 690) {
+				chg_err("[OPLUS_CHG]CONFIG_HIGH_TEMP_VERSION enable here,"
+					"disable high tbat shutdown\n");
 				batt_temp = 690;
+			}
 		}
 #endif
 		return batt_temp;

@@ -20,8 +20,16 @@
                 "OPLUS_CHG_IC_VIRTUAL_GAUGE",
                 "OPLUS_CHG_IC_ASIC",
                 "OPLUS_CHG_IC_VIRTUAL_ASIC",
-		"OPLUS_CHG_IC_VPHY",
-		"OPLUS_CHG_IC_VIRTUAL_VPHY"
+                "OPLUS_CHG_IC_VPHY",
+                "OPLUS_CHG_IC_VIRTUAL_VPHY",
+                "OPLUS_CHG_IC_SWITCH",
+                "OPLUS_CHG_IC_VIRTUAL_SWITCH",
+                "OPLUS_CHG_IC_CP",
+                "OPLUS_CHG_IC_VIRTUAL_UFCS",
+                "OPLUS_CHG_IC_MISC",
+                "OPLUS_CHG_IC_PPS",
+                "OPLUS_CHG_IC_VIRTUAL_PPS",
+                "OPLUS_CHG_IC_UFCS"
             ]
         },
         {
@@ -50,7 +58,11 @@
                 "OPLUS_IC_VIRQ_BC12_COMPLETED",
                 "OPLUS_IC_VIRQ_DATA_ROLE_CHANGED",
                 "OPLUS_IC_VIRQ_ONLINE",
-                "OPLUS_IC_VIRQ_TYPEC_STATE"
+                "OPLUS_IC_VIRQ_TYPEC_STATE",
+                "OPLUS_IC_VIRQ_HARD_RESET",
+                "OPLUS_IC_VIRQ_POWER_CHANGED",
+                "OPLUS_IC_VIRQ_PRESENT",
+                "OPLUS_IC_VIRQ_EVENT_CHANGED"
             ]
         },
         {
@@ -64,7 +76,10 @@
                 "OPLUS_IC_ERR_GAUGE",
                 "OPLUS_IC_ERR_WLS_RX",
                 "OPLUS_IC_ERR_CP",
-                "OPLUS_IC_ERR_CC_LOGIC"
+                "OPLUS_IC_ERR_CC_LOGIC",
+                "OPLUS_IC_ERR_PARALLEL_UNBALANCE",
+                "OPLUS_IC_ERR_MOS_ERROR",
+                "OPLUS_IC_ERR_OFFLINE"
             ]
         },
         {
@@ -79,6 +94,18 @@
                 "PLAT_PMIC_ERR_VCONN_CLOSE",
                 "PLAT_PMIC_ERR_VBUS_ABNORMAL"
             ]
+        },
+        {
+            "name": "oplus_chg_track_mos_device_error",
+            "list": [
+                "TRACK_MOS_ERR_DEFAULT",
+                "TRACK_MOS_SOC_NOT_FULL",
+                "TRACK_MOS_SOC_GAP_TOO_BIG",
+                "TRACK_MOS_CURRENT_UNBALANCE",
+                "TRACK_MOS_I2C_ERROR",
+                "TRACK_MOS_OPEN_ERROR",
+                "TRACK_MOS_VBAT_GAP_BIG"
+            ]
         }
     ],
 
@@ -90,6 +117,9 @@
         "ic/gauge.json",
         "ic/misc.json",
         "ic/voocphy.json",
-        "ic/vooc.json"
+        "ic/vooc.json",
+        "ic/switch.json",
+        "ic/ufcs.json",
+        "ic/pps.json"
     ]
 }

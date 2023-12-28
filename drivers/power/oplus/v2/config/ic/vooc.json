@@ -477,8 +477,52 @@
                 "write": false,
                 "overwrite": false
             }
+        },
+        {
+            "lable": "OPLUS_IC_FUNC_VOOC_GET_CURVE_CURR",
+            "desc": {
+                "zh": "获取充电曲线电流"
+            },
+            "auto_debug_code": true,
+            "parameter_list": ["int *"],
+            "parameter_desc": [
+                {
+                    "range": "0-*",
+                    "type": "out",
+                    "desc": {
+                        "zh": "电流值,单位ma"
+                    }
+                }
+            ],
+            "vict": {
+                "read": false,
+                "write": false,
+                "overwrite": false
+            }
+        },
+        {
+            "lable": "OPLUS_IC_FUNC_VOOC_GET_REAL_CURVE_CURR",
+            "desc": {
+                "zh": "获取充电曲线的电池电流"
+            },
+            "auto_debug_code": true,
+            "parameter_list": ["int *"],
+            "parameter_desc": [
+                {
+                    "range": "0-*",
+                    "type": "out",
+                    "desc": {
+                        "zh": "电流值,单位ma"
+                    }
+                }
+            ],
+            "vict": {
+                "read": false,
+                "write": false,
+                "overwrite": false
+            }
         }
     ],
 
-    "version": "V2.0:25:f7ae03ab0b0c2f73bc18880e07ce53f9a25c5e08b3eb97ff36e8a3bb201e0cdc"
+    "version": "V2.1:27:279c4c0e830f0f3931d67d08eea0a0ccf48ef85afa48ac58be616bd6ae5658af"
 }

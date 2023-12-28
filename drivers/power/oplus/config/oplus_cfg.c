@@ -16,6 +16,20 @@ static DEFINE_MUTEX(cfg_list_lock);
 static LIST_HEAD(cfg_list);
 static struct class oplus_cfg_class;
 
+static const char * const oplus_param_type_name[] = {
+	[OPLUS_CHG_WIRED_SPEC_PARAM]	= "WiredChargeConfig[spec]",
+	[OPLUS_CHG_WIRED_NORMAL_PARAM]	= "WiredChargeConfig",
+	[OPLUS_CHG_WLS_SPEC_PARAM]	= "WirelessChargeConfig[spec]",
+	[OPLUS_CHG_WLS_NORMAL_PARAM]	= "WirelessChargeConfig",
+	[OPLUS_CHG_COMM_SPEC_PARAM]	= "CommonChargeConfig[spec]",
+	[OPLUS_CHG_COMM_NORMAL_PARAM]	= "CommonChargeConfig",
+	[OPLUS_CHG_VOOC_SPEC_PARAM]	= "VoocChargeConfig[spec]",
+	[OPLUS_CHG_VOOC_NORMAL_PARAM]	= "VoocChargeConfig",
+	[OPLUS_CHG_VOOCPHY_PARAM]	= "VoocphyConfig",
+	[OPLUS_CHG_PPS_PARAM]		= "PpsChargeConfig",
+	[OPLUS_CFG_PARAM_MAX]		= "Invalid",
+};
+
 static char public_auth_code[] = {
 	0x30, 0x82, 0x02, 0x0A, 0x02, 0x82, 0x02, 0x01, 0x00, 0xE3, 0xBF, 0x47,
 	0xB0, 0x0D, 0xEA, 0xC0, 0x45, 0xC0, 0xBF, 0x24, 0x31, 0x9E, 0xEC, 0x64,
@@ -493,7 +507,19 @@ EXPORT_SYMBOL(oplus_cfg_unregister);
 static ssize_t update_show(struct class *c, struct class_attribute *attr,
 			   char *buf)
 {
-	return 0;
+	struct oplus_cfg *cfg_tmp;
+	ssize_t size = 0;
+
+	mutex_lock(&cfg_list_lock);
+	list_for_each_entry (cfg_tmp, &cfg_list, list) {
+		if (cfg_tmp->type >= OPLUS_CFG_PARAM_MAX)
+			continue;
+		size += snprintf(buf + size, PAGE_SIZE - size, "%s:%d\n",
+			oplus_param_type_name[cfg_tmp->type], cfg_tmp->type);
+	}
+	mutex_unlock(&cfg_list_lock);
+
+	return size;
 }
 
 #define RECEIVE_START	0
