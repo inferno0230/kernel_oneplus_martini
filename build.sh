@@ -9,14 +9,14 @@ clear='\033[0m'
 KERNEL_PATH=$PWD
 ARCH=arm64
 DEFCONFIG=vendor/lahaina-qgki_defconfig
-CLANG_PATH=$KERNEL_PATH/out/tools/clang-r498229b
+CLANG_PATH=$KERNEL_PATH/out/clang/clang-r510928
 export PATH=$CLANG_PATH/bin:$PATH
 KernelSU=false # Enable if you want KernelSU
 BUILD_CC="LLVM=1 LLVM_IAS=1 CC=clang LD=ld.lld AR=llvm-ar AS=llvm-as NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf OBJSIZE=llvm-objsize STRIP=llvm-strip"
 
 clone_tools() {
     cd $KERNEL_PATH
-    git clone https://gitlab.com/inferno0230/clang-r498229b --depth=1 $KERNEL_PATH/out/tools/clang-r498229b
+    git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --depth=1 $KERNEL_PATH/out/clang
     git clone https://gitlab.com/inferno0230/AnyKernel3 --depth=1 $KERNEL_PATH/AnyKernel3
 }
 
