@@ -30,8 +30,6 @@
 
 #ifdef OPLUS_FEATURE_CHG_BASIC
 #include <soc/oplus/system/boot_mode.h>
-#undef dev_dbg
-#define dev_dbg dev_err
 #define RICHTAP_FOR_PMIC_ENABLE
 #endif
 #ifdef RICHTAP_FOR_PMIC_ENABLE
@@ -2412,7 +2410,7 @@ static int haptics_load_custom_effect(struct haptics_chip *chip,
 	dev_dbg(chip->dev, "custom data length %d with play-rate %d Hz\n",
 			custom_data.length, custom_data.play_rate_hz);
 #else
-	dev_err(chip->dev, "custom data %d length %d with play-rate %d Hz,magnitude=0x%x\n",
+	dev_dbg(chip->dev, "custom data %d length %d with play-rate %d Hz,magnitude=0x%x\n",
 			custom_data.idx, custom_data.length, custom_data.play_rate_hz, magnitude);
 #endif
 	rc = haptics_convert_sample_period(chip, custom_data.play_rate_hz);
