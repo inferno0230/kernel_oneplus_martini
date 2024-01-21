@@ -154,7 +154,7 @@ static inline struct gpio_chip *oplus_gpio_to_chip(unsigned gpio)
 #define SUPER_EDNURANCE_MODE_VOLT_COUNT_DEFAULT 100
 #define SUPER_EDNURANCE_MODE_VOLT_SOC_1_DEFAULT 3110
 
-int enable_charger_log = 2;
+int enable_charger_log = 0;
 int charger_abnormal_log = 0;
 int tbatt_pwroff_enable = 1;
 static int mcu_status = 0;
