@@ -94,7 +94,7 @@ static size_t md_ftrace_buf_current;
 
 static bool md_in_oops_handler;
 static struct seq_buf *md_runq_seq_buf;
-static md_align_offset;
+static int md_align_offset;
 
 /* CPU context information */
 #ifdef CONFIG_QCOM_MINIDUMP_PANIC_CPU_CONTEXT
@@ -656,10 +656,16 @@ static void md_dump_task_info(struct task_struct *task, char *status,
 
 	se = &task->se;
 	if (task == curr) {
+#ifdef CONFIG_ARM64
 		seq_buf_printf(md_runq_seq_buf,
 			       "[status: curr] pid: %d comm: %s preempt: %#x\n",
 			       task_pid_nr(task), task->comm,
 			       task->thread_info.preempt_count);
+#else
+		seq_buf_printf(md_runq_seq_buf,
+				"[status: curr] pid: %d comm: %s\n",
+				task_pid_nr(task), task->comm);
+#endif
 		return;
 	}
 
@@ -1006,10 +1012,10 @@ dump_rq:
 	if (md_meminfo_seq_buf)
 		md_dump_meminfo();
 
+#ifdef CONFIG_SLUB_DEBUG
 	if (md_slabinfo_seq_buf)
 		md_dump_slabinfo();
 
-#ifdef CONFIG_SLUB_DEBUG
 	if (md_slabowner_dump_addr)
 		md_dump_slabowner();
 #endif

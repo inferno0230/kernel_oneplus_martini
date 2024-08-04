@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -3894,6 +3894,7 @@ static int _sde_kms_pm_deepsleep_helper(struct sde_kms *sde_kms, bool enter)
 	if (mem_sleep_current != PM_SUSPEND_MEM)
 		return 0;
 
+	/*Applicable for both deepsleep and hibernation*/
 	SDE_INFO("Deepsleep : enter %d\n", enter);
 
 	for (i = 0; i < sde_kms->dsi_display_count; i++) {
@@ -3902,9 +3903,9 @@ static int _sde_kms_pm_deepsleep_helper(struct sde_kms *sde_kms, bool enter)
 
 
 		if (enter) {
-			/* During deepsleep, clk_parent are reset at HW
-			 * but sw caching is retained in clk framework. To
-			 * maintain same state. unset parents and restore
+			/* During deepsleep/hibernation, clk_parent are reset
+			 * at HW but sw caching is retained in clk framework.
+			 * To maintain same state. unset parents and restore
 			 * during exit.
 			 */
 			if (dsi_display->needs_clk_src_reset)
@@ -4584,6 +4585,12 @@ static int _sde_kms_get_splash_data(struct sde_kms *sde_kms,
 	num_displays = dsi_display_get_num_of_displays()
 				+ dp_display_get_num_of_boot_displays();
 	num_regions = of_property_count_u64_elems(node, "reg") / 2;
+
+	if (num_displays > MAX_DSI_DISPLAYS) {
+		SDE_ERROR("invalid number of built in displays %d\n",
+				num_displays);
+		return -EINVAL;
+	}
 
 	data->num_splash_displays = num_displays;
 

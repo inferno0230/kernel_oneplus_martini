@@ -2153,7 +2153,6 @@ static int oplus_chg_soc_notified_flag_is_set(int flag)
 static int oplus_chg_chg_batt_capacity_jump_check(struct oplus_chg_chip *chip)
 {
 	static int ui_to_soc_jump_flag = false;
-
 	union power_supply_propval pval = {0, };
 	int status;
 
@@ -2268,7 +2267,6 @@ static int oplus_chg_chg_batt_capacity_jump_check(struct oplus_chg_chip *chip)
 
 static int oplus_chg_mcu_update_check(struct oplus_chg_chip *chip) {
 	static int flag = false;
-
 	if((charger_abnormal_log == CRITICAL_LOG_VOOC_FW_UPDATE_ERR && flag == false)
 		|| (mcu_update_flag == 1 && (chg_check_point_debug&OPEN_LOG_BIT))){
 		flag = true;
